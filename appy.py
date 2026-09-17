@@ -55,7 +55,7 @@ def obtener_metadatos_dspace(url):
             api_url = f"https://dspace.ucuenca.edu.ec/server/api/core/items/{uuid}"
 
         headers = {'User-Agent': 'Mozilla/5.0'}
-        response = requests.get(api_url, headers=headers, timeout=10)
+        response = requests.get(api_url, headers=headers, timeout=30)
         
         if response.status_code != 200:
             return None, f"Error de conexión con DSpace (Código: {response.status_code})."
