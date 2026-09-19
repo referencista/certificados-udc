@@ -24,18 +24,18 @@ st.title("📜 Generador de Certificados de No Adeudar")
 st.subheader("Centro de Documentación Regional 'Juan Bautista Vázquez'")
 
 # ------------------------------------------------------------------
-# LISTA OFICIAL DE REFERENCISTAS
+# LISTA OFICIAL DE REFERENCISTAS (CARGO CON "Bibliotecario 2")
 # ------------------------------------------------------------------
 LISTA_REFERENCISTAS = [
-    {"nombre": "DORIS PATRICIA TENESACA CARDENAS", "cargo": "Bibliotecario"},
-    {"nombre": "ERIKA ELIZABETH IDROVO SALAZAR", "cargo": "Bibliotecario"},
-    {"nombre": "ERIKA SOFIA PEÑAFIEL VAZQUEZ", "cargo": "Bibliotecario"},
-    {"nombre": "FRANCISCO TEODORO ASTUDILLO SAQUINAULA", "cargo": "Bibliotecario"},
-    {"nombre": "JENNY EULALIA PEREZ MEJIA", "cargo": "Bibliotecario"},
-    {"nombre": "JHOANNA NOEMI MOGOLLON GUZMAN", "cargo": "Bibliotecario"},
+    {"nombre": "DORIS PATRICIA TENESACA CARDENAS", "cargo": "Bibliotecario 2"},
+    {"nombre": "ERIKA ELIZABETH IDROVO SALAZAR", "cargo": "Bibliotecario 2"},
+    {"nombre": "ERIKA SOFIA PEÑAFIEL VAZQUEZ", "cargo": "Bibliotecario 2"},
+    {"nombre": "FRANCISCO TEODORO ASTUDILLO SAQUINAULA", "cargo": "Bibliotecario 2"},
+    {"nombre": "JENNY EULALIA PEREZ MEJIA", "cargo": "Bibliotecario 2"},
+    {"nombre": "JHOANNA NOEMI MOGOLLON GUZMAN", "cargo": "Bibliotecario 2"},
     {"nombre": "PAOLA DEL ROCIO AMAYA ARCE", "cargo": "Bibliotecario 2"},
-    {"nombre": "PATRICIA MARIBEL DUCHI PESANTEZ", "cargo": "Bibliotecario"},
-    {"nombre": "WILMAN GONZALO TANDAZO GUEVARA", "cargo": "Bibliotecario"},
+    {"nombre": "PATRICIA MARIBEL DUCHI PESANTEZ", "cargo": "Bibliotecario 2"},
+    {"nombre": "WILMAN GONZALO TANDAZO GUEVARA", "cargo": "Bibliotecario 2"},
 ]
 
 MESES = [
@@ -140,9 +140,7 @@ def extraer_metadatos_dspace(url):
             errores_log.append(f"Fallo de conexión HTML: {str(e)}")
 
     if not autores:
-        msg_error = "No se pudieron consultar los metadatos automáticamente. DSpace de UCuenca rechazó la conexión desde la nube de Streamlit."
-        if errores_log:
-            msg_error += f" (Detalle técnico: {' | '.join(errores_log)})"
+        msg_error = "No se pudieron consultar los metadatos automáticamente. Se habilitó el ingreso manual abajo."
         return None, msg_error
 
     facultad_clean = facultad.replace("Universidad de Cuenca.", "").replace("Universidad de Cuenca", "").strip()
@@ -161,7 +159,7 @@ def extraer_metadatos_dspace(url):
     }, None
 
 # ------------------------------------------------------------------
-# GENERADOR DEL DOCUMENTO WORD (.DOCX)
+# GENERADOR DEL DOCUMENTO WORD (.DOCX) CON EL FORMATO EXACTO
 # ------------------------------------------------------------------
 def crear_documento_word(datos):
     doc = docx.Document()
@@ -190,12 +188,20 @@ def crear_documento_word(datos):
 
     p_hdr = cell_right.paragraphs[0]
     p_hdr.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    r1 = p_hdr.add_run("FORMATO DE NO ADEUDAR MATERIAL BIBLIOGRÁFICO A LA BIBLIOTECA\n")
+    
+    # Línea 1
+    r1 = p_hdr.add_run("FORMATO DE NO ADEUDAR MATERIAL BIBLIOGRÁFICO A LA\n")
     r1.font.bold = True; r1.font.size = Pt(8.5); r1.font.name = 'Arial'
-    r2 = p_hdr.add_run("UC-CDRJVB-FOR-020\n")
+    
+    # Línea 2
+    r2 = p_hdr.add_run("BIBLIOTECA\n")
     r2.font.bold = True; r2.font.size = Pt(8.5); r2.font.name = 'Arial'
-    r3 = p_hdr.add_run("Página 1 de 1")
-    r3.font.size = Pt(8.5); r3.font.name = 'Arial'
+    
+    # Código y Página
+    r3 = p_hdr.add_run("UC-CDRJVB-FOR-020\n")
+    r3.font.bold = True; r3.font.size = Pt(8.5); r3.font.name = 'Arial'
+    r4 = p_hdr.add_run("Página 1 de 1")
+    r4.font.size = Pt(8.5); r4.font.name = 'Arial'
 
     doc.add_paragraph()
 
@@ -258,6 +264,7 @@ def crear_documento_word(datos):
     r_nom = p_firma.add_run(f'{datos["ref_nombre"]}\n')
     r_nom.font.name = 'Arial'; r_nom.font.size = Pt(11); r_nom.font.bold = True
 
+    # Cargo con "Bibliotecario 2"
     r_cargo = p_firma.add_run(f'{datos["ref_cargo"]}\n')
     r_cargo.font.name = 'Arial'; r_cargo.font.size = Pt(10)
 
@@ -267,28 +274,19 @@ def crear_documento_word(datos):
     for _ in range(3):
         doc.add_paragraph()
 
-    # 6. PIE DE PÁGINA
-    table_footer = doc.add_table(rows=1, cols=2)
-    table_footer.alignment = WD_TABLE_ALIGNMENT.CENTER
-    table_footer.autofit = False
-
-    cell_f_left = table_footer.rows[0].cells[0]
-    cell_f_right = table_footer.rows[0].cells[1]
-    cell_f_left.width = Inches(5.0)
-    cell_f_right.width = Inches(1.5)
-
-    p_link = cell_f_left.paragraphs[0]
+    # 6. PIE DE PÁGINA (LINK + DOS ESPACIOS + VERSIÓN 2.0 EN LA MISMA LÍNEA)
+    p_link = doc.add_paragraph()
     p_link.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    p_link.add_run("Link: ").font.name = 'Arial'
     
-    r_l2 = p_link.add_run(datos["handle"])
-    r_l2.font.name = 'Arial'; r_l2.font.size = Pt(9.5); r_l2.font.underline = True
-    r_l2.font.color.rgb = RGBColor(0, 51, 153)
+    r_lbl = p_link.add_run("Link: ")
+    r_lbl.font.name = 'Arial'; r_lbl.font.size = Pt(9.5)
+    
+    r_handle = p_link.add_run(datos["handle"])
+    r_handle.font.name = 'Arial'; r_handle.font.size = Pt(9.5); r_handle.font.underline = True
+    r_handle.font.color.rgb = RGBColor(0, 51, 153)
 
-    p_ver = cell_f_right.paragraphs[0]
-    p_ver.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    r_v = p_ver.add_run("Version: 2.0")
-    r_v.font.name = 'Arial'; r_v.font.size = Pt(8.5)
+    r_ver = p_link.add_run("  Versión 2.0")
+    r_ver.font.name = 'Arial'; r_ver.font.size = Pt(8.5)
 
     buffer = io.BytesIO()
     doc.save(buffer)
@@ -312,14 +310,13 @@ with col_btn:
                 data, err = extraer_metadatos_dspace(url_input)
                 if err:
                     st.error(err)
-                    # Activar opción de ingreso manual inmediato si hay bloqueo de red
                     st.session_state["metadatos_dspace"] = {
                         "autores": ["APELLIDOS NOMBRES ESTUDIANTE"],
                         "facultad": "Facultad de Ciencias Químicas",
                         "carrera": "Bioquímica y Farmacia",
                         "handle": url_input
                     }
-                    st.info("ℹ️ Se habilitaron los campos manuales abajo para que puedas escribir el nombre del estudiante sin interrupciones.")
+                    st.info("ℹ️ Se habilitaron los campos manuales abajo para ingresar datos directamente.")
                 else:
                     st.session_state["metadatos_dspace"] = data
                     st.success(f"¡Metadatos procesados! Se encontraron {len(data['autores'])} autor(es).")
