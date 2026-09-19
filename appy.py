@@ -175,13 +175,14 @@ def crear_documento_word(datos):
     cell_left = table_header.rows[0].cells[0]
     cell_right = table_header.rows[0].cells[1]
     
-    # Anchos ajustados para que la frase no se corte solo en "LA"
-    cell_left.width = Inches(1.8)
-    cell_right.width = Inches(4.7)
+    # Anchos equilibrados: 2.1 pulgadas para el logo y 4.4 para el texto oficial
+    cell_left.width = Inches(2.1)
+    cell_right.width = Inches(4.4)
     
     cell_left.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
     cell_right.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
+    # Logo UCUENCA
     p_logo = cell_left.paragraphs[0]
     p_logo.alignment = WD_ALIGN_PARAGRAPH.LEFT
     p_logo.paragraph_format.space_before = Pt(0)
@@ -189,10 +190,11 @@ def crear_documento_word(datos):
     
     run_logo = p_logo.add_run("UCUENCA")
     run_logo.font.name = 'Arial'
-    run_logo.font.size = Pt(28)
+    run_logo.font.size = Pt(22)  # Tamaño adecuado para entrar perfectamente en la celda
     run_logo.font.bold = True
     run_logo.font.color.rgb = RGBColor(15, 43, 91)
 
+    # Bloque de texto
     p_hdr = cell_right.paragraphs[0]
     p_hdr.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_hdr.paragraph_format.line_spacing = 1.0
