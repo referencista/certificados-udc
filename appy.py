@@ -12,10 +12,11 @@ import streamlit as st
 # Configuración de la página web
 st.set_page_config(
     page_title="Generador de Certificados - UCuenca", 
-    page_icon="📜"
+    page_icon="📜",
+    layout="wide"
 )
 
-st.title("📜 Generador Automático de Certificado de No Adeudar")
+st.title("📜 Generador de Certificados de No Adeudar")
 st.subheader("Centro de Documentación Regional 'Juan Bautista Vázquez'")
 
 # ------------------------------------------------------------------
@@ -38,27 +39,23 @@ MESES = [
     "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
 ]
 
-# Inicialización de la sesión para evitar reinicios en Edge
-if "cert_buffer" not in st.session_state:
-    st.session_state["cert_buffer"] = None
-if "cert_filename" not in st.session_state:
-    st.session_state["cert_filename"] = ""
-if "cert_info" not in st.session_state:
-    st.session_state["cert_info"] = None
+# Inicialización de variables en Session State
+if "metadatos_dspace" not in st.session_state:
+    st.session_state["metadatos_dspace"] = None
 
 # ------------------------------------------------------------------
-# EXTRACCIÓN AUTOMÁTICA MULTI-MÉTODO DESDE DSPACE
+# EXTRACCIÓN MEJORADA DE METADATOS (MÚLTIPLES AUTORES Y METADATOS LARGOS)
 # ------------------------------------------------------------------
 def extraer_metadatos_dspace(url):
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     
-    # Extraer Handle o UUID de la URL
     match_handle = re.search(r'(\d+/\d+)', url)
     match_uuid = re.search(r'/items/([a-f0-9\-]+)', url)
 
-    autor, facultad, carrera, handle_final = "", "", "", url
+    autores = []
+    facultad, carrera, handle_final = "", "", url
 
-    # MÉTODO 1: Búsqueda vía REST API de DSpace
+    # MÉTODO 1: REST API de DSpace
     try:
         if match_uuid:
             api_url = f"https://dspace.ucuenca.edu.ec/server/api/core/items/{match_uuid.group(1)}"
@@ -78,45 +75,69 @@ def extraer_metadatos_dspace(url):
                     item_data = data
 
                 metadata = item_data.get("metadata", {})
-                autor = metadata.get("dc.contributor.author", [{}])[0].get("value", "")
+
+                # Extraer TODOS los autores registrados
+                autores_raw = metadata.get("dc.contributor.author", [])
+                for a in autores_raw:
+                    val = a.get("value", "").strip().upper()
+                    if val and val not in autores:
+                        autores.append(val)
+
+                # Extraer Facultad y Carrera buscando en campos alternativos si están incompletos
                 facultad = metadata.get("thesis.degree.grantor", [{}])[0].get("value", "")
+                if not facultad:
+                    facultad = metadata.get("dc.publisher", [{}])[0].get("value", "")
+
                 carrera = metadata.get("thesis.degree.discipline", [{}])[0].get("value", "")
+                if not carrera:
+                    carrera = metadata.get("dc.subject", [{}])[0].get("value", "")
+
                 handle_final = metadata.get("dc.identifier.uri", [{}])[0].get("value", url)
     except Exception:
-        pass # Si falla la API, pasa de inmediato al Método 2 (HTML Directo)
+        pass
 
-    # MÉTODO 2: Raspado HTML (HTML Meta-tags) como respaldo
-    if not autor or not facultad:
+    # MÉTODO 2: Raspado HTML (Metatags de respaldo)
+    if not autores or not facultad:
         try:
             resp_html = requests.get(url, headers=headers, timeout=12)
             if resp_html.status_code == 200:
                 soup = BeautifulSoup(resp_html.text, 'html.parser')
                 
-                # Buscar autor en metatags
-                meta_author = soup.find('meta', {'name': re.compile(r'DC\.creator|citation_author', re.I)})
-                if meta_author and meta_author.get('content'):
-                    autor = meta_author['content']
+                # Autores desde HTML
+                meta_authors = soup.find_all('meta', {'name': re.compile(r'DC\.creator|citation_author', re.I)})
+                for ma in meta_authors:
+                    val = ma.get('content', '').strip().upper()
+                    if val and val not in autores:
+                        autores.append(val)
 
-                # Buscar facultad/carrera en metatags o contenido
-                meta_publisher = soup.find('meta', {'name': re.compile(r'DC\.publisher|citation_publisher', re.I)})
-                if meta_publisher and meta_publisher.get('content'):
-                    text_pub = meta_publisher['content']
-                    if "Facultad" in text_pub:
-                        facultad = text_pub
+                # Facultad y Carrera desde HTML
+                if not facultad:
+                    meta_pub = soup.find('meta', {'name': re.compile(r'DC\.publisher|citation_publisher', re.I)})
+                    if meta_pub and meta_pub.get('content'):
+                        facultad = meta_pub['content'].strip()
 
                 meta_uri = soup.find('meta', {'name': re.compile(r'DC\.identifier|citation_abstract_html_url', re.I)})
                 if meta_uri and meta_uri.get('content'):
-                    handle_final = meta_uri['content']
-        except Exception as e:
-            st.error(f"Error al conectar con DSpace: {str(e)}")
+                    handle_final = meta_uri['content'].strip()
+        except Exception:
+            pass
 
-    if not autor:
-        return None, "No se pudieron extraer los metadatos de DSpace. Revisa que la URL sea pública y correcta."
+    if not autores:
+        return None, "No se pudieron extraer autores de la URL ingresada. Revisa que sea un enlace público de DSpace."
+
+    # Limpieza de textos
+    facultad_clean = facultad.replace("Universidad de Cuenca.", "").strip()
+    if not facultad_clean:
+        facultad_clean = "Facultad de Ciencias Químicas"
+
+    carrera_clean = carrera.strip()
+    if not carrera_clean:
+        carrera_clean = "Bioquímica y Farmacia"
 
     return {
-        "autor": autor.upper().strip(),
-        "facultad": facultad if facultad else "Facultad de Ciencias Químicas",
-        "carrera": carrera if carrera else "Carrera de Graduación",
+        "autores": autores,
+        "facultad": facultad_clean,
+        "carrera": carrera_clean,
         "handle": handle_final
     }, None
 
@@ -258,68 +279,77 @@ def crear_documento_word(datos):
 # ------------------------------------------------------------------
 # INTERFAZ DE USUARIO STREAMLIT
 # ------------------------------------------------------------------
-st.markdown("---")
+st.markdown("### 1. Búsqueda de Trabajo en DSpace")
 
-col1, col2 = st.columns([2, 1])
+col_url, col_btn = st.columns([3, 1])
+with col_url:
+    url_input = st.text_input("URL del Ítem en DSpace:", placeholder="https://dspace.ucuenca.edu.ec/handle/123456789/...")
 
-with col1:
-    url_dspace = st.text_input(
-        "URL del Ítem en DSpace:", 
-        placeholder="https://dspace.ucuenca.edu.ec/handle/123456789/..."
-    )
+with col_btn:
+    st.write(" ")
+    if st.button("🔍 Buscar Metadatos", type="primary"):
+        if url_input:
+            with st.spinner("Consultando DSpace..."):
+                data, err = extraer_metadatos_dspace(url_input)
+                if err:
+                    st.error(err)
+                else:
+                    st.session_state["metadatos_dspace"] = data
+                    st.success(f"¡Se encontraron {len(data['autores'])} autor(es) para este trabajo!")
 
-with col2:
-    cedula = st.text_input("Número de Cédula:", placeholder="1401064256")
-
-col_lvl, col_ref = st.columns(2)
-
-with col_lvl:
-    nivel_academico = st.selectbox("Nivel Académico:", ["Pregrado", "Maestría / Posgrado"])
-
-with col_ref:
-    nombres_ref = sorted([r["nombre"] for r in LISTA_REFERENCISTAS])
-    referencista_sel = st.selectbox("Bibliotecario que firma:", nombres_ref)
-
-st.markdown("---")
-
-# Botón Único de Procesamiento Automático
-if st.button("🚀 Generar Certificado desde DSpace", type="primary"):
-    if not url_dspace or not cedula:
-        st.error("Por favor ingresa la URL de DSpace y el número de cédula.")
-    else:
-        with st.spinner("Consultando DSpace y construyendo certificado..."):
-            datos, error = extraer_metadatos_dspace(url_dspace)
-            
-            if error:
-                st.error(error)
-            else:
-                ref_info = next(item for item in LISTA_REFERENCISTAS if item["nombre"] == referencista_sel)
-                
-                payload = {
-                    "autor": datos["autor"],
-                    "cedula": cedula.strip(),
-                    "facultad": datos["facultad"],
-                    "carrera": datos["carrera"],
-                    "handle": datos["handle"],
-                    "nivel": nivel_academico,
-                    "ref_nombre": ref_info["nombre"],
-                    "ref_cargo": ref_info["cargo"]
-                }
-
-                # Guardar el resultado en la sesión activa
-                st.session_state["cert_buffer"] = crear_documento_word(payload)
-                st.session_state["cert_filename"] = f"Certificado_No_Adeudar_{cedula.strip()}.docx"
-                st.session_state["cert_info"] = datos
-
-# Si el certificado ya está generado, mostrar información y botón permanente de descarga
-if st.session_state["cert_buffer"] is not None:
-    st.success(f"✅ ¡Certificado generado automáticamente para **{st.session_state['cert_info']['autor']}**!")
-    st.info(f"**Facultad:** {st.session_state['cert_info']['facultad']} | **Carrera:** {st.session_state['cert_info']['carrera']}")
+if st.session_state["metadatos_dspace"]:
+    data = st.session_state["metadatos_dspace"]
     
-    st.download_button(
-        label="📥 DESCARGAR DOCUMENTO WORD (.DOCX)",
-        data=st.session_state["cert_buffer"],
-        file_name=st.session_state["cert_filename"],
-        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        type="secondary"
-    )
+    st.markdown("---")
+    st.markdown("### 2. Configuración General")
+    
+    col_fac, col_car, col_niv, col_ref = st.columns(4)
+    with col_fac:
+        facultad_edit = st.text_input("Facultad:", value=data["facultad"])
+    with col_car:
+        carrera_edit = st.text_input("Carrera / Programa:", value=data["carrera"])
+    with col_niv:
+        nivel_sel = st.selectbox("Nivel Académico:", ["Pregrado", "Maestría / Posgrado"])
+    with col_ref:
+        nombres_ref = sorted([r["nombre"] for r in LISTA_REFERENCISTAS])
+        referencista_sel = st.selectbox("Bibliotecario que firma:", nombres_ref)
+
+    st.markdown("---")
+    st.markdown(f"### 3. Autores Detectados ({len(data['autores'])})")
+
+    ref_info = next(item for item in LISTA_REFERENCISTAS if item["nombre"] == referencista_sel)
+
+    # Crear una tarjeta independiente para cada autor
+    for idx, autor_nombre in enumerate(data["autores"], start=1):
+        with st.expander(f"👤 Autor {idx}: {autor_nombre}", expanded=True):
+            col_a, col_b, col_c = st.columns([2, 2, 2])
+            
+            with col_a:
+                nombre_autor_final = st.text_input(f"Nombre Estudiante {idx}:", value=autor_nombre, key=f"nom_{idx}")
+            with col_b:
+                cedula_autor = st.text_input(f"Cédula de Ciudadanía {idx}:", placeholder="Ej: 1401064256", key=f"ced_{idx}")
+            with col_c:
+                st.write(" ")
+                if st.button(f"📄 Generar Certificado #{idx}", key=f"btn_{idx}"):
+                    if not cedula_autor:
+                        st.warning(f"Por favor ingresa la cédula para {nombre_autor_final}")
+                    else:
+                        payload = {
+                            "autor": nombre_autor_final.strip().upper(),
+                            "cedula": cedula_autor.strip(),
+                            "facultad": facultad_edit.strip(),
+                            "carrera": carrera_edit.strip(),
+                            "handle": data["handle"],
+                            "nivel": nivel_sel,
+                            "ref_nombre": ref_info["nombre"],
+                            "ref_cargo": ref_info["cargo"]
+                        }
+                        
+                        buf = crear_documento_word(payload)
+                        st.download_button(
+                            label=f"📥 Descargar Word para {nombre_autor_final.split(',')[0]}",
+                            data=buf,
+                            file_name=f"Certificado_No_Adeudar_{cedula_autor.strip()}.docx",
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                            key=f"dl_{idx}"
+                        )
