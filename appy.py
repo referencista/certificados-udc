@@ -39,12 +39,11 @@ MESES = [
     "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
 ]
 
-# Inicialización de variables en Session State
 if "metadatos_dspace" not in st.session_state:
     st.session_state["metadatos_dspace"] = None
 
 # ------------------------------------------------------------------
-# EXTRACCIÓN MEJORADA DE METADATOS (MÚLTIPLES AUTORES Y METADATOS LARGOS)
+# EXTRACCIÓN AVANZADA DE METADATOS DESDE DSPACE 7 REST API & HTML
 # ------------------------------------------------------------------
 def extraer_metadatos_dspace(url):
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
@@ -55,7 +54,7 @@ def extraer_metadatos_dspace(url):
     autores = []
     facultad, carrera, handle_final = "", "", url
 
-    # MÉTODO 1: REST API de DSpace
+    # 1. BÚSQUEDA VÍA DSPACE REST API
     try:
         if match_uuid:
             api_url = f"https://dspace.ucuenca.edu.ec/server/api/core/items/{match_uuid.group(1)}"
@@ -65,7 +64,7 @@ def extraer_metadatos_dspace(url):
             api_url = None
 
         if api_url:
-            resp = requests.get(api_url, headers=headers, timeout=12)
+            resp = requests.get(api_url, headers=headers, timeout=15)
             if resp.status_code == 200:
                 data = resp.json()
                 if "_embedded" in data and "searchResult" in data["_embedded"]:
@@ -76,41 +75,49 @@ def extraer_metadatos_dspace(url):
 
                 metadata = item_data.get("metadata", {})
 
-                # Extraer TODOS los autores registrados
-                autores_raw = metadata.get("dc.contributor.author", [])
-                for a in autores_raw:
-                    val = a.get("value", "").strip().upper()
-                    if val and val not in autores:
-                        autores.append(val)
+                # Búsqueda exhaustiva de Autores en múltiples esquemas de DSpace
+                campos_autores = ["dc.contributor.author", "dc.creator", "dc.author", "dc.contributor"]
+                for campo in campos_autores:
+                    entries = metadata.get(campo, [])
+                    for entry in entries:
+                        val = entry.get("value", "").strip().upper()
+                        if val and val not in autores:
+                            autores.append(val)
 
-                # Extraer Facultad y Carrera buscando en campos alternativos si están incompletos
-                facultad = metadata.get("thesis.degree.grantor", [{}])[0].get("value", "")
-                if not facultad:
-                    facultad = metadata.get("dc.publisher", [{}])[0].get("value", "")
+                # Búsqueda exhaustiva de Facultad
+                campos_facultad = ["thesis.degree.grantor", "dc.publisher", "dc.contributor.department", "dc.publisher.department"]
+                for campo in campos_facultad:
+                    if campo in metadata and metadata[campo]:
+                        facultad = metadata[campo][0].get("value", "")
+                        if facultad:
+                            break
 
-                carrera = metadata.get("thesis.degree.discipline", [{}])[0].get("value", "")
-                if not carrera:
-                    carrera = metadata.get("dc.subject", [{}])[0].get("value", "")
+                # Búsqueda exhaustiva de Carrera
+                campos_carrera = ["thesis.degree.discipline", "dc.subject", "dc.degree.name", "dc.degree.discipline"]
+                for campo in campos_carrera:
+                    if campo in metadata and metadata[campo]:
+                        carrera = metadata[campo][0].get("value", "")
+                        if carrera:
+                            break
 
                 handle_final = metadata.get("dc.identifier.uri", [{}])[0].get("value", url)
     except Exception:
         pass
 
-    # MÉTODO 2: Raspado HTML (Metatags de respaldo)
+    # 2. RESPALDO VÍA HTML SCRAPING
     if not autores or not facultad:
         try:
-            resp_html = requests.get(url, headers=headers, timeout=12)
+            resp_html = requests.get(url, headers=headers, timeout=15)
             if resp_html.status_code == 200:
                 soup = BeautifulSoup(resp_html.text, 'html.parser')
                 
-                # Autores desde HTML
-                meta_authors = soup.find_all('meta', {'name': re.compile(r'DC\.creator|citation_author', re.I)})
+                # Buscar autores en meta tags de HTML
+                meta_authors = soup.find_all('meta', {'name': re.compile(r'DC\.creator|DC\.contributor|citation_author', re.I)})
                 for ma in meta_authors:
                     val = ma.get('content', '').strip().upper()
                     if val and val not in autores:
                         autores.append(val)
 
-                # Facultad y Carrera desde HTML
                 if not facultad:
                     meta_pub = soup.find('meta', {'name': re.compile(r'DC\.publisher|citation_publisher', re.I)})
                     if meta_pub and meta_pub.get('content'):
@@ -123,16 +130,16 @@ def extraer_metadatos_dspace(url):
             pass
 
     if not autores:
-        return None, "No se pudieron extraer autores de la URL ingresada. Revisa que sea un enlace público de DSpace."
+        return None, "No se pudieron extraer autores de la URL ingresada. Revisa que el ítem sea público en DSpace."
 
     # Limpieza de textos
-    facultad_clean = facultad.replace("Universidad de Cuenca.", "").strip()
+    facultad_clean = facultad.replace("Universidad de Cuenca.", "").replace("Universidad de Cuenca", "").strip()
     if not facultad_clean:
         facultad_clean = "Facultad de Ciencias Químicas"
 
     carrera_clean = carrera.strip()
     if not carrera_clean:
-        carrera_clean = "Bioquímica y Farmacia"
+        carrera_clean = "Carrera de Graduación"
 
     return {
         "autores": autores,
@@ -283,7 +290,7 @@ st.markdown("### 1. Búsqueda de Trabajo en DSpace")
 
 col_url, col_btn = st.columns([3, 1])
 with col_url:
-    url_input = st.text_input("URL del Ítem en DSpace:", placeholder="https://dspace.ucuenca.edu.ec/handle/123456789/...")
+    url_input = st.text_input("URL del Ítem en DSpace:", placeholder="https://dspace.ucuenca.edu.ec/items/85088aa6...")
 
 with col_btn:
     st.write(" ")
@@ -295,7 +302,7 @@ with col_btn:
                     st.error(err)
                 else:
                     st.session_state["metadatos_dspace"] = data
-                    st.success(f"¡Se encontraron {len(data['autores'])} autor(es) para este trabajo!")
+                    st.success(f"¡Metadatos procesados! Se encontraron {len(data['autores'])} autor(es).")
 
 if st.session_state["metadatos_dspace"]:
     data = st.session_state["metadatos_dspace"]
@@ -319,7 +326,6 @@ if st.session_state["metadatos_dspace"]:
 
     ref_info = next(item for item in LISTA_REFERENCISTAS if item["nombre"] == referencista_sel)
 
-    # Crear una tarjeta independiente para cada autor
     for idx, autor_nombre in enumerate(data["autores"], start=1):
         with st.expander(f"👤 Autor {idx}: {autor_nombre}", expanded=True):
             col_a, col_b, col_c = st.columns([2, 2, 2])
