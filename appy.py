@@ -7,7 +7,11 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt, RGBColor
 from docx.enum.table import WD_TABLE_ALIGNMENT
 import requests
+import urllib3
 import streamlit as st
+
+# Desactivar advertencias de certificados SSL no verificados
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Configuración de la página web
 st.set_page_config(
@@ -43,16 +47,22 @@ if "metadatos_dspace" not in st.session_state:
     st.session_state["metadatos_dspace"] = None
 
 # ------------------------------------------------------------------
-# EXTRACCIÓN AVANZADA DE METADATOS DESDE DSPACE 7 REST API & HTML
+# EXTRACCIÓN AVANZADA DE METADATOS CON DIAGNÓSTICO DE RED
 # ------------------------------------------------------------------
 def extraer_metadatos_dspace(url):
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8',
+        'Referer': 'https://dspace.ucuenca.edu.ec/'
+    }
     
     match_handle = re.search(r'(\d+/\d+)', url)
     match_uuid = re.search(r'/items/([a-f0-9\-]+)', url)
 
     autores = []
     facultad, carrera, handle_final = "", "", url
+    errores_log = []
 
     # 1. BÚSQUEDA VÍA DSPACE REST API
     try:
@@ -64,7 +74,7 @@ def extraer_metadatos_dspace(url):
             api_url = None
 
         if api_url:
-            resp = requests.get(api_url, headers=headers, timeout=15)
+            resp = requests.get(api_url, headers=headers, timeout=15, verify=False)
             if resp.status_code == 200:
                 data = resp.json()
                 if "_embedded" in data and "searchResult" in data["_embedded"]:
@@ -75,7 +85,7 @@ def extraer_metadatos_dspace(url):
 
                 metadata = item_data.get("metadata", {})
 
-                # Búsqueda exhaustiva de Autores en múltiples esquemas de DSpace
+                # Autores
                 campos_autores = ["dc.contributor.author", "dc.creator", "dc.author", "dc.contributor"]
                 for campo in campos_autores:
                     entries = metadata.get(campo, [])
@@ -84,34 +94,32 @@ def extraer_metadatos_dspace(url):
                         if val and val not in autores:
                             autores.append(val)
 
-                # Búsqueda exhaustiva de Facultad
-                campos_facultad = ["thesis.degree.grantor", "dc.publisher", "dc.contributor.department", "dc.publisher.department"]
+                # Facultad
+                campos_facultad = ["thesis.degree.grantor", "dc.publisher", "dc.contributor.department"]
                 for campo in campos_facultad:
                     if campo in metadata and metadata[campo]:
                         facultad = metadata[campo][0].get("value", "")
-                        if facultad:
-                            break
+                        if facultad: break
 
-                # Búsqueda exhaustiva de Carrera
-                campos_carrera = ["thesis.degree.discipline", "dc.subject", "dc.degree.name", "dc.degree.discipline"]
+                # Carrera
+                campos_carrera = ["thesis.degree.discipline", "dc.subject", "dc.degree.name"]
                 for campo in campos_carrera:
                     if campo in metadata and metadata[campo]:
                         carrera = metadata[campo][0].get("value", "")
-                        if carrera:
-                            break
+                        if carrera: break
 
                 handle_final = metadata.get("dc.identifier.uri", [{}])[0].get("value", url)
-    except Exception:
-        pass
+            else:
+                errores_log.append(f"Respuesta API DSpace HTTP {resp.status_code}")
+    except Exception as e:
+        errores_log.append(f"Fallo de conexión API: {str(e)}")
 
     # 2. RESPALDO VÍA HTML SCRAPING
-    if not autores or not facultad:
+    if not autores:
         try:
-            resp_html = requests.get(url, headers=headers, timeout=15)
+            resp_html = requests.get(url, headers=headers, timeout=15, verify=False)
             if resp_html.status_code == 200:
                 soup = BeautifulSoup(resp_html.text, 'html.parser')
-                
-                # Buscar autores en meta tags de HTML
                 meta_authors = soup.find_all('meta', {'name': re.compile(r'DC\.creator|DC\.contributor|citation_author', re.I)})
                 for ma in meta_authors:
                     val = ma.get('content', '').strip().upper()
@@ -126,20 +134,24 @@ def extraer_metadatos_dspace(url):
                 meta_uri = soup.find('meta', {'name': re.compile(r'DC\.identifier|citation_abstract_html_url', re.I)})
                 if meta_uri and meta_uri.get('content'):
                     handle_final = meta_uri['content'].strip()
-        except Exception:
-            pass
+            else:
+                errores_log.append(f"Respuesta HTML DSpace HTTP {resp_html.status_code}")
+        except Exception as e:
+            errores_log.append(f"Fallo de conexión HTML: {str(e)}")
 
     if not autores:
-        return None, "No se pudieron extraer autores de la URL ingresada. Revisa que el ítem sea público en DSpace."
+        msg_error = "No se pudieron consultar los metadatos automáticamente. DSpace de UCuenca rechazó la conexión desde la nube de Streamlit."
+        if errores_log:
+            msg_error += f" (Detalle técnico: {' | '.join(errores_log)})"
+        return None, msg_error
 
-    # Limpieza de textos
     facultad_clean = facultad.replace("Universidad de Cuenca.", "").replace("Universidad de Cuenca", "").strip()
     if not facultad_clean:
         facultad_clean = "Facultad de Ciencias Químicas"
 
     carrera_clean = carrera.strip()
     if not carrera_clean:
-        carrera_clean = "Carrera de Graduación"
+        carrera_clean = "Bioquímica y Farmacia"
 
     return {
         "autores": autores,
@@ -300,6 +312,14 @@ with col_btn:
                 data, err = extraer_metadatos_dspace(url_input)
                 if err:
                     st.error(err)
+                    # Activar opción de ingreso manual inmediato si hay bloqueo de red
+                    st.session_state["metadatos_dspace"] = {
+                        "autores": ["APELLIDOS NOMBRES ESTUDIANTE"],
+                        "facultad": "Facultad de Ciencias Químicas",
+                        "carrera": "Bioquímica y Farmacia",
+                        "handle": url_input
+                    }
+                    st.info("ℹ️ Se habilitaron los campos manuales abajo para que puedas escribir el nombre del estudiante sin interrupciones.")
                 else:
                     st.session_state["metadatos_dspace"] = data
                     st.success(f"¡Metadatos procesados! Se encontraron {len(data['autores'])} autor(es).")
@@ -322,7 +342,7 @@ if st.session_state["metadatos_dspace"]:
         referencista_sel = st.selectbox("Bibliotecario que firma:", nombres_ref)
 
     st.markdown("---")
-    st.markdown(f"### 3. Autores Detectados ({len(data['autores'])})")
+    st.markdown(f"### 3. Autores ({len(data['autores'])})")
 
     ref_info = next(item for item in LISTA_REFERENCISTAS if item["nombre"] == referencista_sel)
 
@@ -353,7 +373,7 @@ if st.session_state["metadatos_dspace"]:
                         
                         buf = crear_documento_word(payload)
                         st.download_button(
-                            label=f"📥 Descargar Word para {nombre_autor_final.split(',')[0]}",
+                            label=f"📥 Descargar Word (.docx)",
                             data=buf,
                             file_name=f"Certificado_No_Adeudar_{cedula_autor.strip()}.docx",
                             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
