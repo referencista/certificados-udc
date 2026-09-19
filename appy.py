@@ -175,8 +175,9 @@ def crear_documento_word(datos):
     cell_left = table_header.rows[0].cells[0]
     cell_right = table_header.rows[0].cells[1]
     
-    cell_left.width = Inches(2.8)
-    cell_right.width = Inches(3.7)
+    # Anchos ajustados para que la frase no se corte solo en "LA"
+    cell_left.width = Inches(1.8)
+    cell_right.width = Inches(4.7)
     
     cell_left.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
     cell_right.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
@@ -301,8 +302,7 @@ def crear_documento_word(datos):
     for _ in range(3):
         doc.add_paragraph()
 
-    # 6. PIE DE PÁGINA (ESTRUCTURA IDÉNTICA A LA IMAGEN)
-    # Línea 1: Link alineado a la izquierda con "Link:" en negrita
+    # 6. PIE DE PÁGINA
     p_link = doc.add_paragraph()
     p_link.alignment = WD_ALIGN_PARAGRAPH.LEFT
     p_link.paragraph_format.space_before = Pt(0)
@@ -319,7 +319,6 @@ def crear_documento_word(datos):
     r_handle.font.underline = True
     r_handle.font.color.rgb = RGBColor(0, 51, 153)
 
-    # Línea 2: Version: 2.0 alineado a la derecha
     p_ver = doc.add_paragraph()
     p_ver.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_ver.paragraph_format.space_before = Pt(0)
