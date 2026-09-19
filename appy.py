@@ -5,7 +5,7 @@ from bs4 import BeautifulSoup
 import docx
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt, RGBColor
-from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.enum.table import WD_TABLE_ALIGNMENT, WD_ALIGN_VERTICAL
 import requests
 import urllib3
 import streamlit as st
@@ -24,7 +24,7 @@ st.title("📜 Generador de Certificados de No Adeudar")
 st.subheader("Centro de Documentación Regional 'Juan Bautista Vázquez'")
 
 # ------------------------------------------------------------------
-# LISTA OFICIAL DE REFERENCISTAS (CARGO CON "Bibliotecario 2")
+# LISTA OFICIAL DE REFERENCISTAS
 # ------------------------------------------------------------------
 LISTA_REFERENCISTAS = [
     {"nombre": "DORIS PATRICIA TENESACA CARDENAS", "cargo": "Bibliotecario 2"},
@@ -47,7 +47,7 @@ if "metadatos_dspace" not in st.session_state:
     st.session_state["metadatos_dspace"] = None
 
 # ------------------------------------------------------------------
-# EXTRACCIÓN AVANZADA DE METADATOS CON DIAGNÓSTICO DE RED
+# EXTRACCIÓN AVANZADA DE METADATOS
 # ------------------------------------------------------------------
 def extraer_metadatos_dspace(url):
     headers = {
@@ -85,7 +85,6 @@ def extraer_metadatos_dspace(url):
 
                 metadata = item_data.get("metadata", {})
 
-                # Autores
                 campos_autores = ["dc.contributor.author", "dc.creator", "dc.author", "dc.contributor"]
                 for campo in campos_autores:
                     entries = metadata.get(campo, [])
@@ -94,14 +93,12 @@ def extraer_metadatos_dspace(url):
                         if val and val not in autores:
                             autores.append(val)
 
-                # Facultad
                 campos_facultad = ["thesis.degree.grantor", "dc.publisher", "dc.contributor.department"]
                 for campo in campos_facultad:
                     if campo in metadata and metadata[campo]:
                         facultad = metadata[campo][0].get("value", "")
                         if facultad: break
 
-                # Carrera
                 campos_carrera = ["thesis.degree.discipline", "dc.subject", "dc.degree.name"]
                 for campo in campos_carrera:
                     if campo in metadata and metadata[campo]:
@@ -159,7 +156,7 @@ def extraer_metadatos_dspace(url):
     }, None
 
 # ------------------------------------------------------------------
-# GENERADOR DEL DOCUMENTO WORD (.DOCX) CON EL FORMATO EXACTO
+# GENERADOR DEL DOCUMENTO WORD (.DOCX)
 # ------------------------------------------------------------------
 def crear_documento_word(datos):
     doc = docx.Document()
@@ -177,31 +174,49 @@ def crear_documento_word(datos):
 
     cell_left = table_header.rows[0].cells[0]
     cell_right = table_header.rows[0].cells[1]
-    cell_left.width = Inches(3.2)
-    cell_right.width = Inches(3.3)
+    
+    cell_left.width = Inches(2.8)
+    cell_right.width = Inches(3.7)
+    
+    cell_left.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
+    cell_right.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
     p_logo = cell_left.paragraphs[0]
     p_logo.alignment = WD_ALIGN_PARAGRAPH.LEFT
+    p_logo.paragraph_format.space_before = Pt(0)
+    p_logo.paragraph_format.space_after = Pt(0)
+    
     run_logo = p_logo.add_run("UCUENCA")
-    run_logo.font.name = 'Arial'; run_logo.font.size = Pt(28); run_logo.font.bold = True
+    run_logo.font.name = 'Arial'
+    run_logo.font.size = Pt(28)
+    run_logo.font.bold = True
     run_logo.font.color.rgb = RGBColor(15, 43, 91)
 
     p_hdr = cell_right.paragraphs[0]
     p_hdr.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    
-    # Línea 1
+    p_hdr.paragraph_format.line_spacing = 1.0
+    p_hdr.paragraph_format.space_before = Pt(0)
+    p_hdr.paragraph_format.space_after = Pt(0)
+
     r1 = p_hdr.add_run("FORMATO DE NO ADEUDAR MATERIAL BIBLIOGRÁFICO A LA\n")
-    r1.font.bold = True; r1.font.size = Pt(8.5); r1.font.name = 'Arial'
-    
-    # Línea 2
+    r1.font.bold = True
+    r1.font.size = Pt(8.5)
+    r1.font.name = 'Arial'
+
     r2 = p_hdr.add_run("BIBLIOTECA\n")
-    r2.font.bold = True; r2.font.size = Pt(8.5); r2.font.name = 'Arial'
-    
-    # Código y Página
+    r2.font.bold = True
+    r2.font.size = Pt(8.5)
+    r2.font.name = 'Arial'
+
     r3 = p_hdr.add_run("UC-CDRJVB-FOR-020\n")
-    r3.font.bold = True; r3.font.size = Pt(8.5); r3.font.name = 'Arial'
+    r3.font.bold = True
+    r3.font.size = Pt(8.5)
+    r3.font.name = 'Arial'
+
     r4 = p_hdr.add_run("Página 1 de 1")
-    r4.font.size = Pt(8.5); r4.font.name = 'Arial'
+    r4.font.bold = False
+    r4.font.size = Pt(8.5)
+    r4.font.name = 'Arial'
 
     doc.add_paragraph()
 
@@ -211,7 +226,9 @@ def crear_documento_word(datos):
     p_titulo.paragraph_format.space_before = Pt(24)
     p_titulo.paragraph_format.space_after = Pt(24)
     run_titulo = p_titulo.add_run("CERTIFICADO DE NO ADEUDAR")
-    run_titulo.font.name = 'Arial'; run_titulo.font.size = Pt(13); run_titulo.font.bold = True
+    run_titulo.font.name = 'Arial'
+    run_titulo.font.size = Pt(13)
+    run_titulo.font.bold = True
 
     # 3. CUERPO
     p_cuerpo = doc.add_paragraph()
@@ -225,17 +242,23 @@ def crear_documento_word(datos):
     p_cuerpo.runs[0].font.size = Pt(11)
 
     r_nombre = p_cuerpo.add_run(f'{datos["autor"]}')
-    r_nombre.font.name = 'Arial'; r_nombre.font.size = Pt(11); r_nombre.font.bold = True
+    r_nombre.font.name = 'Arial'
+    r_nombre.font.size = Pt(11)
+    r_nombre.font.bold = True
 
     r = p_cuerpo.add_run(', portador de la cédula de ciudadanía No. ')
-    r.font.name = 'Arial'; r.font.size = Pt(11)
+    r.font.name = 'Arial'
+    r.font.size = Pt(11)
 
     r_cedula = p_cuerpo.add_run(f'{datos["cedula"]}')
-    r_cedula.font.name = 'Arial'; r_cedula.font.size = Pt(11); r_cedula.font.bold = True
+    r_cedula.font.name = 'Arial'
+    r_cedula.font.size = Pt(11)
+    r_cedula.font.bold = True
 
     r_text = f', estudiante de la {datos["facultad"]} {prefix_carrera} {datos["carrera"]}, no adeuda ningún bien, ni material bibliográfico en esta dependencia.'
     r = p_cuerpo.add_run(r_text)
-    r.font.name = 'Arial'; r.font.size = Pt(11)
+    r.font.name = 'Arial'
+    r.font.size = Pt(11)
 
     # 4. FECHA
     p_fecha = doc.add_paragraph()
@@ -244,7 +267,8 @@ def crear_documento_word(datos):
     hoy = datetime.now()
     fecha_texto = f"Cuenca, {hoy.day} de {MESES[hoy.month - 1]} de {hoy.year}"
     r_fecha = p_fecha.add_run(fecha_texto)
-    r_fecha.font.name = 'Arial'; r_fecha.font.size = Pt(11)
+    r_fecha.font.name = 'Arial'
+    r_fecha.font.size = Pt(11)
 
     # 5. FIRMA
     p_atentamente = doc.add_paragraph()
@@ -262,31 +286,48 @@ def crear_documento_word(datos):
     p_firma.paragraph_format.line_spacing = 1.1
 
     r_nom = p_firma.add_run(f'{datos["ref_nombre"]}\n')
-    r_nom.font.name = 'Arial'; r_nom.font.size = Pt(11); r_nom.font.bold = True
+    r_nom.font.name = 'Arial'
+    r_nom.font.size = Pt(11)
+    r_nom.font.bold = True
 
-    # Cargo con "Bibliotecario 2"
     r_cargo = p_firma.add_run(f'{datos["ref_cargo"]}\n')
-    r_cargo.font.name = 'Arial'; r_cargo.font.size = Pt(10)
+    r_cargo.font.name = 'Arial'
+    r_cargo.font.size = Pt(10)
 
     r_cdr = p_firma.add_run('CDR "Juan Bautista Vázquez"')
-    r_cdr.font.name = 'Arial'; r_cdr.font.size = Pt(10)
+    r_cdr.font.name = 'Arial'
+    r_cdr.font.size = Pt(10)
 
     for _ in range(3):
         doc.add_paragraph()
 
-    # 6. PIE DE PÁGINA (LINK + DOS ESPACIOS + VERSIÓN 2.0 EN LA MISMA LÍNEA)
+    # 6. PIE DE PÁGINA (ESTRUCTURA IDÉNTICA A LA IMAGEN)
+    # Línea 1: Link alineado a la izquierda con "Link:" en negrita
     p_link = doc.add_paragraph()
     p_link.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    
+    p_link.paragraph_format.space_before = Pt(0)
+    p_link.paragraph_format.space_after = Pt(14)
+
     r_lbl = p_link.add_run("Link: ")
-    r_lbl.font.name = 'Arial'; r_lbl.font.size = Pt(9.5)
-    
+    r_lbl.font.name = 'Arial'
+    r_lbl.font.size = Pt(10)
+    r_lbl.font.bold = True
+
     r_handle = p_link.add_run(datos["handle"])
-    r_handle.font.name = 'Arial'; r_handle.font.size = Pt(9.5); r_handle.font.underline = True
+    r_handle.font.name = 'Arial'
+    r_handle.font.size = Pt(10)
+    r_handle.font.underline = True
     r_handle.font.color.rgb = RGBColor(0, 51, 153)
 
-    r_ver = p_link.add_run("  Versión 2.0")
-    r_ver.font.name = 'Arial'; r_ver.font.size = Pt(8.5)
+    # Línea 2: Version: 2.0 alineado a la derecha
+    p_ver = doc.add_paragraph()
+    p_ver.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+    p_ver.paragraph_format.space_before = Pt(0)
+    p_ver.paragraph_format.space_after = Pt(0)
+
+    r_ver = p_ver.add_run("Version: 2.0")
+    r_ver.font.name = 'Arial'
+    r_ver.font.size = Pt(9.5)
 
     buffer = io.BytesIO()
     doc.save(buffer)
