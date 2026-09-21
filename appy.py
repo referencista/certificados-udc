@@ -3,7 +3,7 @@ import re
 import unicodedata
 import zipfile
 from datetime import datetime
-from bs4 import BeautifulSoup
+
 import docx
 from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
@@ -58,6 +58,170 @@ MESES = [
     "diciembre",
 ]
 
+FACULTADES_MAP = [
+    (
+        "Facultad de Ciencias Agropecuarias",
+        [
+            "agropecuaria",
+            "agropecuarias",
+            "agronomía",
+            "agronomia",
+            "agronómica",
+            "agronomica",
+            "veterinaria",
+            "medicina veterinaria",
+            "zootecnia",
+        ],
+    ),
+    (
+        "Facultad de Ciencias de la Hospitalidad",
+        [
+            "hospitalidad",
+            "turismo",
+            "gastronomía",
+            "gastronomia",
+            "hotelería",
+            "hoteleria",
+        ],
+    ),
+    (
+        "Facultad de Arquitectura y Urbanismo",
+        [
+            "arquitectura",
+            "diseño gráfico",
+            "diseño de interiores",
+            "diseño interior",
+            "urbanismo",
+        ],
+    ),
+    (
+        "Facultad de Ciencias Económicas y Administrativas",
+        [
+            "económica",
+            "economía",
+            "economica",
+            "economia",
+            "administración",
+            "administracion",
+            "contabilidad",
+            "auditoría",
+            "auditoria",
+            "mercadotecnia",
+            "finanzas",
+            "comercio exterior",
+            "empresa",
+            "empresas",
+        ],
+    ),
+    (
+        "Facultad de Ingeniería",
+        [
+            "ingeniería civil",
+            "ingenieria civil",
+            "sistemas",
+            "computación",
+            "computacion",
+            "eléctrica",
+            "electrica",
+            "electrónica",
+            "electronica",
+            "telecomunicaciones",
+            "industrial",
+            "carreteras",
+            "software",
+        ],
+    ),
+    (
+        "Facultad de Ciencias Médicas",
+        [
+            "médica",
+            "medicina",
+            "enfermería",
+            "enfermeria",
+            "fisioterapia",
+            "laboratorio clínico",
+            "laboratorio clinico",
+            "nutrición",
+            "nutricion",
+            "salud",
+            "fonoaudiología",
+            "imagenología",
+        ],
+    ),
+    (
+        "Facultad de Ciencias Químicas",
+        [
+            "química",
+            "quimica",
+            "bioquímica",
+            "bioquimica",
+            "farmacia",
+            "ingeniería química",
+            "ingenieria quimica",
+            "ingeniería ambiental",
+            "ingenieria ambiental",
+            "alimentos",
+        ],
+    ),
+    (
+        "Facultad de Filosofía, Letras y Ciencias de la Educación",
+        [
+            "filosofía",
+            "filosofia",
+            "educación",
+            "educacion",
+            "comunicación",
+            "comunicacion",
+            "idiomas",
+            "lengua",
+            "historia",
+            "pedagogía",
+            "pedagogia",
+            "literatura",
+            "inicial",
+            "básica",
+            "basica",
+        ],
+    ),
+    (
+        "Facultad de Jurisprudencia, Ciencias Políticas y Sociales",
+        [
+            "jurisprudencia",
+            "derecho",
+            "trabajo social",
+            "orientación familiar",
+            "orientacion familiar",
+            "política",
+            "politica",
+            "género",
+        ],
+    ),
+    (
+        "Facultad de Artes",
+        [
+            "artes",
+            "música",
+            "musica",
+            "danza",
+            "teatro",
+            "artes visuales",
+            "diseño teatral",
+            "escénicas",
+        ],
+    ),
+    (
+        "Facultad de Psicología",
+        [
+            "psicología",
+            "psicologia",
+            "psicología clínica",
+            "psicologia clinica",
+            "psicoeducativa",
+            "psicoterapia",
+        ],
+    ),
+]
+
 
 def normalizar_texto(texto):
   if not texto:
@@ -68,7 +232,7 @@ def normalizar_texto(texto):
 
 
 # ------------------------------------------------------------------
-# EXTRACCIÓN AVANZADA DE METADATOS VÍA API REST DSPACE 7 (UCUENCA)
+# EXTRACCIÓN Y LIMPIEZA DE METADATOS VÍA API REST DSPACE 7 (UCUENCA)
 # ------------------------------------------------------------------
 @st.cache_data(ttl=3600, show_spinner=False)
 def extraer_metadatos_dspace(url_input):
@@ -91,11 +255,11 @@ def extraer_metadatos_dspace(url_input):
 
   if match_handle:
     handle_id = match_handle.group(1)
-    endpoint = f"/pid/find?id={handle_id}"
+    endpoint = f"/pid/find?id={handle_id}&embed=owningCollection"
     handle_official = f"https://dspace.ucuenca.edu.ec/handle/{handle_id}"
   elif match_uuid:
     uuid_id = match_uuid.group(1)
-    endpoint = f"/core/items/{uuid_id}"
+    endpoint = f"/core/items/{uuid_id}?embed=owningCollection"
 
   headers = {"Accept": "application/json", "User-Agent": "Mozilla/5.0"}
   data = None
@@ -122,51 +286,108 @@ def extraer_metadatos_dspace(url_input):
 
   metadata = data.get("metadata", {})
 
-  def get_meta_value(keys_list, default=""):
+  def get_all_meta_values(keys_list):
     if isinstance(keys_list, str):
       keys_list = [keys_list]
+    res = []
     for key in keys_list:
       items = metadata.get(key, [])
-      if items and len(items) > 0:
-        val = items[0].get("value", "").strip()
-        if val:
-          return val
-    return default
+      for item in items:
+        v = item.get("value", "").strip()
+        if v and v not in res:
+          res.append(v)
+    return res
 
-  # Autores
-  raw_authors = [
-      a.get("value")
-      for a in metadata.get("dc.contributor.author", [])
-      if a.get("value")
-  ]
+  raw_authors = get_all_meta_values(["dc.contributor.author", "dc.creator"])
   autores_formateados = []
   for a in raw_authors:
     a_clean = re.sub(r"\s+", " ", a).strip().upper()
     if a_clean and a_clean not in autores_formateados:
       autores_formateados.append(a_clean)
 
-  # Facultad y Carrera
-  facultad = get_meta_value(
-      [
-          "thesis.degree.grantor",
-          "dc.publisher",
-          "dc.department",
-          "dc.contributor.department",
-      ],
-      default="",
+  titulos = " ".join(get_all_meta_values(["dc.title"]))
+  materias = " ".join(
+      get_all_meta_values(["dc.subject", "dc.description.abstract"])
   )
+  texto_inferencia = normalizar_texto(f"{titulos} {materias}")
 
-  carrera = get_meta_value(
-      [
-          "thesis.degree.discipline",
-          "thesis.degree.name",
-          "dc.degree.discipline",
-          "dc.subject",
-      ],
-      default="",
-  )
+  candidatos_facultad = get_all_meta_values([
+      "thesis.degree.grantor",
+      "dc.publisher",
+      "dc.department",
+      "dc.contributor.department",
+      "dc.publisher.department",
+      "dc.degree.grantor",
+  ])
 
-  # Handle oficial
+  owning_coll_name = ""
+  try:
+    owning_coll_name = (
+        data.get("_embedded", {})
+        .get("owningCollection", {})
+        .get("name", "")
+        .strip()
+    )
+  except Exception:
+    pass
+
+  if owning_coll_name:
+    candidatos_facultad.append(owning_coll_name)
+
+  facultad_detectada = ""
+  for cand in candidatos_facultad:
+    cand_norm = normalizar_texto(cand)
+    for fac_oficial, kw_list in FACULTADES_MAP:
+      fac_norm = normalizar_texto(fac_oficial)
+      if fac_norm in cand_norm or any(kw in cand_norm for kw in kw_list):
+        facultad_detectada = fac_oficial
+        break
+    if facultad_detectada:
+      break
+
+  if not facultad_detectada:
+    for fac_oficial, kw_list in FACULTADES_MAP:
+      if any(kw in texto_inferencia for kw in kw_list):
+        facultad_detectada = fac_oficial
+        break
+
+  candidatos_carrera = get_all_meta_values([
+      "thesis.degree.discipline",
+      "thesis.degree.name",
+      "dc.degree.discipline",
+      "dc.degree.program",
+      "dc.subject",
+  ])
+
+  if owning_coll_name and owning_coll_name not in candidatos_carrera:
+    candidatos_carrera.append(owning_coll_name)
+
+  carrera_detectada = ""
+  for cand in candidatos_carrera:
+    cand_clean = re.sub(
+        r"^(Universidad de Cuenca\.\s*|Facultad de [^.]+\.\s*)",
+        "",
+        cand,
+        flags=re.I,
+    ).strip()
+    cand_clean = re.sub(
+        r"^(carrera de|programa de|maestría en|doctorado en|msc\.|ing\.|lic\.)\s*",
+        "",
+        cand_clean,
+        flags=re.I,
+    ).strip()
+
+    if (
+        cand_clean
+        and "universidad" not in cand_clean.lower()
+        and "facultad" not in cand_clean.lower()
+    ):
+      carrera_detectada = cand_clean
+      break
+
+  if not carrera_detectada and candidatos_carrera:
+    carrera_detectada = candidatos_carrera[0]
+
   uri_items = metadata.get("dc.identifier.uri", [])
   for uri in uri_items:
     val_uri = uri.get("value", "")
@@ -184,19 +405,19 @@ def extraer_metadatos_dspace(url_input):
           if autores_formateados
           else ["APELLIDOS, NOMBRES ESTUDIANTE"]
       ),
-      "facultad": facultad,
-      "carrera": carrera,
+      "facultad": facultad_detectada,
+      "carrera": carrera_detectada,
       "handle": handle_official,
   }
 
 
 # ------------------------------------------------------------------
-# GENERADOR DEL DOCUMENTO WORD (.DOCX) - TODO EN ARIAL
+# GENERADOR DEL DOCUMENTO WORD (.DOCX) - FORMATO EXACTO
 # ------------------------------------------------------------------
 def crear_documento_word(datos):
   doc = docx.Document()
 
-  # Configuración global del estilo base a Arial
+  # Estilo global Arial
   style_normal = doc.styles["Normal"]
   font_normal = style_normal.font
   font_normal.name = "Arial"
@@ -209,9 +430,7 @@ def crear_documento_word(datos):
     section.left_margin = Inches(1.0)
     section.right_margin = Inches(1.0)
 
-  # ------------------------------------------------------------------
-  # ENCABEZADO: Separa el logo de la Universidad del texto normativo
-  # ------------------------------------------------------------------
+  # ENCABEZADO
   table_header = doc.add_table(rows=1, cols=2)
   table_header.alignment = WD_TABLE_ALIGNMENT.CENTER
   table_header.autofit = False
@@ -226,17 +445,15 @@ def crear_documento_word(datos):
       WD_ALIGN_VERTICAL.CENTER
   )
 
-  # Celda Izquierda: Logo Grande
   p_logo = cell_left.paragraphs[0]
   p_logo.alignment = WD_ALIGN_PARAGRAPH.LEFT
   p_logo.paragraph_format.space_after = Pt(0)
   run_logo = p_logo.add_run("UCUENCA")
   run_logo.font.name = "Arial"
-  run_logo.font.size = Pt(28)  # Logo más grande
+  run_logo.font.size = Pt(28)
   run_logo.font.bold = True
   run_logo.font.color.rgb = RGBColor(15, 43, 91)
 
-  # Celda Derecha: Texto Normativo
   p_hdr = cell_right.paragraphs[0]
   p_hdr.alignment = WD_ALIGN_PARAGRAPH.RIGHT
   p_hdr.paragraph_format.line_spacing = 1.15
@@ -252,9 +469,7 @@ def crear_documento_word(datos):
 
   doc.add_paragraph()
 
-  # ------------------------------------------------------------------
   # TÍTULO PRINCIPAL
-  # ------------------------------------------------------------------
   p_titulo = doc.add_paragraph()
   p_titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
   p_titulo.paragraph_format.space_before = Pt(24)
@@ -265,24 +480,19 @@ def crear_documento_word(datos):
   r_tit.font.size = Pt(13)
   r_tit.font.bold = True
 
-  # ------------------------------------------------------------------
-  # CUERPO DEL CERTIFICADO
-  # ------------------------------------------------------------------
+  # CUERPO DEL CERTIFICADO CON FORMATO EXACTO
   p_cuerpo = doc.add_paragraph()
   p_cuerpo.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
   p_cuerpo.paragraph_format.line_spacing = 1.15
   p_cuerpo.paragraph_format.space_after = Pt(24)
 
   tipo = datos.get("tipo_estudio", "Pregrado")
-  prefix_carrera = (
-      "del Programa de Maestría en"
-      if tipo == "Maestría"
-      else (
-          "del Programa de Doctorado en"
-          if tipo == "Doctorado"
-          else "de la Carrera de"
-      )
-  )
+  if tipo == "Maestría":
+    prefix_carrera = "del Programa de Maestría en"
+  elif tipo == "Doctorado":
+    prefix_carrera = "del Programa de Doctorado en"
+  else:
+    prefix_carrera = "de la Carrera de"
 
   r_c1 = p_cuerpo.add_run(
       'El Centro de Documentación Regional "Juan Bautista Vázquez" certifica'
@@ -294,7 +504,7 @@ def crear_documento_word(datos):
   r_nom.font.name = "Arial"
   r_nom.font.bold = True
 
-  r_c2 = p_cuerpo.add_run(", portador(a) de la cédula de ciudadanía No. ")
+  r_c2 = p_cuerpo.add_run(", portador de la cédula de ciudadanía No. ")
   r_c2.font.name = "Arial"
 
   r_ced = p_cuerpo.add_run("____________________")
@@ -308,9 +518,7 @@ def crear_documento_word(datos):
   )
   r_c3.font.name = "Arial"
 
-  # ------------------------------------------------------------------
   # FECHA
-  # ------------------------------------------------------------------
   p_fecha = doc.add_paragraph()
   p_fecha.alignment = WD_ALIGN_PARAGRAPH.RIGHT
   p_fecha.paragraph_format.space_after = Pt(24)
@@ -321,9 +529,7 @@ def crear_documento_word(datos):
   )
   r_fecha.font.name = "Arial"
 
-  # ------------------------------------------------------------------
   # FIRMAS
-  # ------------------------------------------------------------------
   doc.add_paragraph().paragraph_format.space_after = Pt(30)
 
   p_atentamente = doc.add_paragraph()
@@ -343,9 +549,7 @@ def crear_documento_word(datos):
   r_f2 = p_firma.add_run(f'{datos["ref_cargo"]}\nCDR "Juan Bautista Vázquez"')
   r_f2.font.name = "Arial"
 
-  # ------------------------------------------------------------------
   # ENLACE DSPACE
-  # ------------------------------------------------------------------
   for _ in range(2):
     doc.add_paragraph()
 
@@ -359,9 +563,7 @@ def crear_documento_word(datos):
   r_h.font.underline = True
   r_h.font.color.rgb = RGBColor(0, 51, 153)
 
-  # ------------------------------------------------------------------
   # VERSIÓN (Desplazada dos espacios más abajo)
-  # ------------------------------------------------------------------
   doc.add_paragraph()
   doc.add_paragraph()
 
@@ -450,7 +652,6 @@ if btn_procesar or "datos_cargados" in st.session_state:
       }
       certificados_generados.append(payload)
 
-      # Descarga directa individual
       buf = crear_documento_word(payload)
       st.download_button(
           label=(
@@ -464,7 +665,6 @@ if btn_procesar or "datos_cargados" in st.session_state:
           key=f"btn_dl_{idx}",
       )
 
-  # Descarga conjunto en ZIP si hay múltiples estudiantes
   if len(certificados_generados) > 1:
     st.markdown("---")
     zip_buffer = io.BytesIO()
