@@ -67,124 +67,111 @@ def normalizar_texto(texto):
     return texto.lower()
 
 # ------------------------------------------------------------------
-# EXTRACCIÓN AVANZADA DE METADATOS DSPACE CON CACHÉ DE MEMORIA RAM
+# EXTRACCIÓN AVANZADA DE METADATOS VÍA API REST DSPACE 7 (UCUENCA)
 # ------------------------------------------------------------------
 @st.cache_data(ttl=3600, show_spinner=False)
 def extraer_metadatos_dspace(url_input):
     url_clean = url_input.strip()
-    match_handle = re.search(r'(\d+/\d+)', url_clean)
-    
+
+    # 1. Extraer Handle (ej: 123456789/49197) o UUID (ej: 2de2ea74-...)
+    match_handle = re.search(r"(\d+/\d+)", url_clean)
+    match_uuid = re.search(
+        r"([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})",
+        url_clean,
+        re.I,
+    )
+
+    # Subdominios de la API REST de DSpace 7 en UCuenca
+    base_apis = [
+        "https://rest-dspace.ucuenca.edu.ec/server/api",
+        "https://dspace.ucuenca.edu.ec/server/api",
+    ]
+
+    if match_handle:
+        handle_id = match_handle.group(1)
+        endpoint = f"/pid/find?id={handle_id}"
+        handle_official = f"https://dspace.ucuenca.edu.ec/handle/{handle_id}"
+    elif match_uuid:
+        uuid_id = match_uuid.group(1)
+        endpoint = f"/core/items/{uuid_id}"
+        handle_official = url_clean
+    else:
+        return {
+            "autores": ["APELLIDOS NOMBRES ESTUDIANTE"],
+            "facultad": "Facultad de Ciencias Agropecuarias",
+            "carrera": "Ingeniería Agronómica",
+            "handle": url_clean,
+        }
+
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
+        "Accept": "application/json",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        ),
     }
 
-    if url_clean.startswith("http"):
-        handle_official = url_clean.split("?")[0]
-    elif match_handle:
-        handle_official = f"https://dspace.ucuenca.edu.ec/handle/{match_handle.group(1)}"
-    else:
-        handle_official = url_clean
-
-    urls_to_try = []
-    if match_handle:
-        h = match_handle.group(1)
-        urls_to_try.append(f"https://dspace.ucuenca.edu.ec/handle/{h}?mode=full")
-        urls_to_try.append(f"https://dspace.ucuenca.edu.ec/handle/{h}")
-    elif url_clean.startswith("http"):
-        urls_to_try.append(url_clean)
-        if "?mode=full" not in url_clean:
-            urls_to_try.insert(0, url_clean + ("&mode=full" if "?" in url_clean else "?mode=full"))
-
-    html_content = ""
-    for u in urls_to_try:
+    data = None
+    # Probamos las rutas API
+    for base in base_apis:
         try:
-            resp = requests.get(u, headers=headers, timeout=10, verify=False)
-            if resp.status_code == 200 and len(resp.text) > 400:
-                html_content = resp.text
+            resp = requests.get(
+                base + endpoint, headers=headers, timeout=10, verify=False
+            )
+            if resp.status_code == 200:
+                data = resp.json()
                 break
         except Exception:
             continue
 
-    raw_authors, facultad_detectada, carrera_detectada = [], "", ""
+    # Si la API no responde, devolvemos plantilla por defecto editable en Streamlit
+    if not data:
+        return {
+            "autores": ["APELLIDOS NOMBRES ESTUDIANTE"],
+            "facultad": "Facultad de Ciencias Agropecuarias",
+            "carrera": "Ingeniería Agronómica",
+            "handle": handle_official,
+        }
 
-    if html_content:
-        soup = BeautifulSoup(html_content, 'html.parser')
+    metadata = data.get("metadata", {})
 
-        # 1. Autores
-        meta_authors = soup.find_all('meta', {'name': re.compile(r'^(DC\.creator|citation_author|dc\.contributor\.author)$', re.I)})
-        for ma in meta_authors:
-            val = ma.get('content', '').strip()
-            if val and val not in raw_authors:
-                raw_authors.append(val)
+    def get_meta_value(key, default=""):
+        items = metadata.get(key, [])
+        if items and len(items) > 0:
+            return items[0].get("value", default)
+        return default
 
-        for row in soup.find_all('tr'):
-            tds = row.find_all(['td', 'th'])
-            if len(tds) >= 2:
-                lbl = tds[0].get_text().strip().lower()
-                val = tds[1].get_text().strip()
-                if ('dc.contributor.author' in lbl or 'dc.creator' in lbl) and val:
-                    if val not in raw_authors:
-                        raw_authors.append(val)
-
-        # 2. Extraer campos estructurados
-        raw_grantor, raw_discipline = "", ""
-        for row in soup.find_all('tr'):
-            tds = row.find_all(['td', 'th'])
-            if len(tds) >= 2:
-                lbl = tds[0].get_text().strip().lower()
-                val = tds[1].get_text().strip()
-                if 'thesis.degree.grantor' in lbl or 'dc.publisher' in lbl:
-                    if not raw_grantor: raw_grantor = val
-                elif 'thesis.degree.discipline' in lbl:
-                    if not raw_discipline: raw_discipline = val
-
-        full_text_norm = normalizar_texto(soup.get_text())
-
-        # Detección de Facultad
-        match_fac = re.search(r'facultad de [a-záéíóúñ\s,]+', f"{raw_grantor.lower()} {soup.get_text().lower()}")
-        if match_fac:
-            cand = match_fac.group(0).split('\n')[0].split('-')[0].strip().title()
-            if len(cand) < 65 and "Facultad" in cand:
-                facultad_detectada = re.sub(r'[.\,\;]+$', '', cand)
-
-        if not facultad_detectada:
-            for fac_nombre, keywords in FACULTADES_MAP:
-                if any(kw in full_text_norm for kw in keywords):
-                    facultad_detectada = fac_nombre
-                    break
-
-        # Detección de Carrera
-        if raw_discipline:
-            carrera_detectada = raw_discipline.strip()
-        else:
-            if "agronomia" in full_text_norm or "agronomica" in full_text_norm:
-                carrera_detectada = "Ingeniería Agronómica"
-            elif "veterinaria" in full_text_norm:
-                carrera_detectada = "Medicina Veterinaria"
-            elif "turismo" in full_text_norm:
-                carrera_detectada = "Turismo"
-            elif "gastronomia" in full_text_norm:
-                carrera_detectada = "Gastronomía"
-
-    # Formatear nombres de autores (APELLIDOS NOMBRES -> NOMBRES APELLIDOS)
+    # Extraer y formatear autores (APELLIDOS, NOMBRES -> NOMBRES APELLIDOS)
+    raw_authors = [
+        a.get("value")
+        for a in metadata.get("dc.contributor.author", [])
+        if a.get("value")
+    ]
     autores_formateados = []
     for a in raw_authors:
-        a_clean = re.sub(r'\s+', ' ', a).strip()
-        if ',' in a_clean:
-            parts = a_clean.split(',', 1)
-            nombre_completo = f"{parts[1].strip()} {parts[0].strip()}".upper()
+        a_clean = re.sub(r"\s+", " ", a).strip()
+        if "," in a_clean:
+            parts = a_clean.split(",", 1)
+            nombre = f"{parts[1].strip()} {parts[0].strip()}".upper()
         else:
-            nombre_completo = a_clean.upper()
-        if nombre_completo not in autores_formateados:
-            autores_formateados.append(nombre_completo)
+            nombre = a_clean.upper()
+        if nombre not in autores_formateados:
+            autores_formateados.append(nombre)
+
+    facultad = get_meta_value(
+        "thesis.degree.grantor",
+        get_meta_value("dc.publisher", "Facultad de Ciencias Agropecuarias"),
+    )
+    carrera = get_meta_value(
+        "thesis.degree.discipline", "Ingeniería Agronómica"
+    )
 
     return {
-        "autores": autores_formateados if autores_formateados else ["APELLIDOS NOMBRES ESTUDIANTE"],
-        "facultad": facultad_detectada if facultad_detectada else "Facultad de Ciencias Agropecuarias",
-        "carrera": carrera_detectada if carrera_detectada else "Ingeniería Agronómica",
-        "handle": handle_official
+        "autores": autores_formateados
+        if autores_formateados
+        else ["APELLIDOS NOMBRES ESTUDIANTE"],
+        "facultad": facultad,
+        "carrera": carrera,
+        "handle": handle_official,
     }
 
 # ------------------------------------------------------------------
