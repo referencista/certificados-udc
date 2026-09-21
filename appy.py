@@ -45,9 +45,10 @@ MESES = [
 ]
 
 FACULTADES_MAP = [
+    ("Facultad de Ciencias de la Hospitalidad", ["hospitalidad", "turismo", "gastronomía", "gastronomia", "hotelería", "hoteleria"]),
     ("Facultad de Arquitectura y Urbanismo", ["arquitectura", "diseño gráfico", "diseño de interiores"]),
-    ("Facultad de Ciencias Agropecuarias", ["agropecuaria", "agronomía", "veterinaria"]),
-    ("Facultad de Ciencias Económicas y Administrativas", ["económica", "economía", "administración", "contabilidad", "auditoría", "mercadotecnia", "finanzas"]),
+    ("Facultad de Ciencias Agropecuarias", ["agropecuaria", "agronomía", "agronomia", "veterinaria"]),
+    ("Facultad de Ciencias Económicas y Administrativas", ["económica", "economía", "administración", "contabilidad", "auditoría", "mercadotecnia", "finanzas", "comercio exterior"]),
     ("Facultad de Ingeniería", ["ingeniería civil", "sistemas", "computación", "eléctrica", "electrónica", "telecomunicaciones"]),
     ("Facultad de Ciencias Médicas", ["médica", "medicina", "enfermería", "fisioterapia", "laboratorio clínico", "nutrición"]),
     ("Facultad de Ciencias Químicas", ["química", "bioquímica", "farmacia", "ingeniería química", "ingeniería ambiental"]),
@@ -70,16 +71,20 @@ def extraer_metadatos_dspace(url_input):
         'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
     }
 
+    # Conservar el enlace exacto ingresado
+    if url_clean.startswith("http"):
+        handle_official = url_clean.split("?")[0]
+    elif match_handle:
+        handle_official = f"https://dspace.ucuenca.edu.ec/handle/{match_handle.group(1)}"
+    else:
+        handle_official = url_clean
+
     urls_to_try = []
-    handle_official = ""
-    
     if match_handle:
         h = match_handle.group(1)
-        handle_official = f"http://dspace.ucuenca.edu.ec/handle/{h}"
         urls_to_try.append(f"https://dspace.ucuenca.edu.ec/handle/{h}?mode=full")
         urls_to_try.append(f"https://dspace.ucuenca.edu.ec/handle/{h}")
     elif url_clean.startswith("http"):
-        handle_official = url_clean
         urls_to_try.append(url_clean)
         if "?mode=full" not in url_clean:
             urls_to_try.insert(0, url_clean + ("&mode=full" if "?" in url_clean else "?mode=full"))
@@ -99,7 +104,7 @@ def extraer_metadatos_dspace(url_input):
     if html_content:
         soup = BeautifulSoup(html_content, 'html.parser')
 
-        # Autores
+        # 1. Autores
         meta_authors = soup.find_all('meta', {'name': re.compile(r'^(DC\.creator|citation_author|dc\.contributor\.author)$', re.I)})
         for ma in meta_authors:
             val = ma.get('content', '').strip()
@@ -115,7 +120,7 @@ def extraer_metadatos_dspace(url_input):
                     if val not in raw_authors:
                         raw_authors.append(val)
 
-        # Facultad y Carrera
+        # 2. Facultad y Carrera
         raw_grantor, raw_discipline = "", ""
         for row in soup.find_all('tr'):
             tds = row.find_all(['td', 'th'])
@@ -127,21 +132,31 @@ def extraer_metadatos_dspace(url_input):
                 elif 'thesis.degree.discipline' in lbl:
                     if not raw_discipline: raw_discipline = val
 
-        body_text = soup.get_text()
-        
-        match_fac = re.search(r'Facultad de [A-Za-zÁÉÍÓÚáéíóúñÑ\s,]+', f"{raw_grantor} {body_text}")
+        body_text = soup.get_text().lower()
+
+        # Detección de Facultad
+        match_fac = re.search(r'facultad de [a-záéíóúñ\s,]+', f"{raw_grantor.lower()} {body_text}")
         if match_fac:
-            cand = match_fac.group(0).split('\n')[0].split('-')[0].strip()
-            if len(cand) < 65:
+            cand = match_fac.group(0).split('\n')[0].split('-')[0].strip().title()
+            if len(cand) < 65 and "Facultad" in cand:
                 facultad_detectada = re.sub(r'[.\,\;]+$', '', cand)
 
         if not facultad_detectada:
             for fac_nombre, keywords in FACULTADES_MAP:
-                if any(kw in body_text.lower() for kw in keywords):
+                if any(kw in body_text for kw in keywords):
                     facultad_detectada = fac_nombre
                     break
 
-        carrera_detectada = raw_discipline.strip() if raw_discipline else ""
+        # Detección de Carrera
+        if raw_discipline:
+            carrera_detectada = raw_discipline.strip()
+        else:
+            if "turismo" in body_text:
+                carrera_detectada = "Turismo"
+            elif "gastronomía" in body_text or "gastronomia" in body_text:
+                carrera_detectada = "Gastronomía"
+            elif "hotelería" in body_text or "hoteleria" in body_text:
+                carrera_detectada = "Hotelería"
 
     # Formatear nombres de autores
     autores_formateados = []
@@ -157,9 +172,9 @@ def extraer_metadatos_dspace(url_input):
 
     return {
         "autores": autores_formateados if autores_formateados else ["APELLIDOS NOMBRES ESTUDIANTE"],
-        "facultad": facultad_detectada if facultad_detectada else "Facultad de Ciencias Químicas",
-        "carrera": carrera_detectada if carrera_detectada else "Bioquímica y Farmacia",
-        "handle": handle_official or url_clean
+        "facultad": facultad_detectada if facultad_detectada else "Facultad de Ciencias de la Hospitalidad",
+        "carrera": carrera_detectada if carrera_detectada else "Turismo",
+        "handle": handle_official
     }
 
 # ------------------------------------------------------------------
@@ -243,7 +258,6 @@ def crear_documento_word(datos):
     p_cuerpo.paragraph_format.line_spacing = 1.15
     p_cuerpo.paragraph_format.space_after = Pt(24)
 
-    # Definir la redacción según tipo de título
     tipo = datos.get("tipo_estudio", "Pregrado")
     if tipo == "Maestría":
         prefix_carrera = "del Programa de Maestría en"
@@ -315,7 +329,7 @@ def crear_documento_word(datos):
     for _ in range(3):
         doc.add_paragraph()
 
-    # 6. PIE DE PÁGINA
+    # 6. PIE DE PÁGINA CON EL LINK OFICIAL Y EXACTO
     p_link = doc.add_paragraph()
     p_link.alignment = WD_ALIGN_PARAGRAPH.LEFT
     p_link.paragraph_format.space_before = Pt(0)
@@ -351,11 +365,10 @@ def crear_documento_word(datos):
 # ------------------------------------------------------------------
 st.markdown("### 1. Parámetros de la Consulta")
 
-# Contenedor de formulario en la pantalla principal
 col1, col2, col3 = st.columns([3, 2, 2])
 
 with col1:
-    url_input = st.text_input("URL o Handle de DSpace:", placeholder="Ej: https://dspace.ucuenca.edu.ec/handle/123456789/40123")
+    url_input = st.text_input("URL o Handle de DSpace:", placeholder="Ej: https://dspace.ucuenca.edu.ec/handle/123456789/49287")
 
 with col2:
     tipo_estudio = st.selectbox("Tipo de Titulación:", ["Pregrado", "Maestría", "Doctorado", "Complexivo"])
@@ -425,7 +438,6 @@ if btn_procesar or "datos_cargados" in st.session_state:
             else:
                 st.info("💡 Ingrese el número de cédula para activar el botón de descarga.")
 
-    # Opción para descargar todos en un solo ZIP si hay varios autores
     if len(certificados_generados) > 1:
         st.markdown("---")
         if all(c["cedula"] for c in certificados_generados):
