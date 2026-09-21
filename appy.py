@@ -1,6 +1,7 @@
 import io
 import re
 import zipfile
+import unicodedata
 from datetime import datetime
 from bs4 import BeautifulSoup
 import docx
@@ -44,12 +45,13 @@ MESES = [
     "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
 ]
 
+# Mapa exhaustivo de facultades y palabras clave
 FACULTADES_MAP = [
+    ("Facultad de Ciencias Agropecuarias", ["agropecuaria", "agropecuarias", "agronomía", "agronomia", "agronómica", "agronomica", "veterinaria", "medicina veterinaria"]),
     ("Facultad de Ciencias de la Hospitalidad", ["hospitalidad", "turismo", "gastronomía", "gastronomia", "hotelería", "hoteleria"]),
-    ("Facultad de Arquitectura y Urbanismo", ["arquitectura", "diseño gráfico", "diseño de interiores"]),
-    ("Facultad de Ciencias Agropecuarias", ["agropecuaria", "agronomía", "agronomia", "veterinaria"]),
+    ("Facultad de Arquitectura y Urbanismo", ["arquitectura", "diseño gráfico", "diseño de interiores", "diseño interior"]),
     ("Facultad de Ciencias Económicas y Administrativas", ["económica", "economía", "administración", "contabilidad", "auditoría", "mercadotecnia", "finanzas", "comercio exterior"]),
-    ("Facultad de Ingeniería", ["ingeniería civil", "sistemas", "computación", "eléctrica", "electrónica", "telecomunicaciones"]),
+    ("Facultad de Ingeniería", ["ingeniería civil", "sistemas", "computación", "eléctrica", "electrónica", "telecomunicaciones", "industrial"]),
     ("Facultad de Ciencias Médicas", ["médica", "medicina", "enfermería", "fisioterapia", "laboratorio clínico", "nutrición"]),
     ("Facultad de Ciencias Químicas", ["química", "bioquímica", "farmacia", "ingeniería química", "ingeniería ambiental"]),
     ("Facultad de Filosofía, Letras y Ciencias de la Educación", ["filosofía", "educación", "comunicación", "idiomas", "lengua", "historia", "pedagogía"]),
@@ -58,20 +60,25 @@ FACULTADES_MAP = [
     ("Facultad de Psicología", ["psicología", "psicología clínica"])
 ]
 
+def normalizar_texto(texto):
+    if not texto: return ""
+    texto = unicodedata.normalize('NFD', texto)
+    texto = re.sub(r'[\u0300-\u036f]', '', texto)
+    return texto.lower()
+
 # ------------------------------------------------------------------
-# EXTRACCIÓN DE METADATOS DSPACE
+# EXTRACCIÓN AVANZADA DE METADATOS DSPACE
 # ------------------------------------------------------------------
 def extraer_metadatos_dspace(url_input):
     url_clean = url_input.strip()
     match_handle = re.search(r'(\d+/\d+)', url_clean)
     
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
         'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
     }
 
-    # Conservar el enlace exacto ingresado
     if url_clean.startswith("http"):
         handle_official = url_clean.split("?")[0]
     elif match_handle:
@@ -92,8 +99,8 @@ def extraer_metadatos_dspace(url_input):
     html_content = ""
     for u in urls_to_try:
         try:
-            resp = requests.get(u, headers=headers, timeout=8, verify=False)
-            if resp.status_code == 200 and len(resp.text) > 500:
+            resp = requests.get(u, headers=headers, timeout=10, verify=False)
+            if resp.status_code == 200 and len(resp.text) > 400:
                 html_content = resp.text
                 break
         except Exception:
@@ -120,7 +127,7 @@ def extraer_metadatos_dspace(url_input):
                     if val not in raw_authors:
                         raw_authors.append(val)
 
-        # 2. Facultad y Carrera
+        # 2. Extraer campos estructurados
         raw_grantor, raw_discipline = "", ""
         for row in soup.find_all('tr'):
             tds = row.find_all(['td', 'th'])
@@ -132,10 +139,10 @@ def extraer_metadatos_dspace(url_input):
                 elif 'thesis.degree.discipline' in lbl:
                     if not raw_discipline: raw_discipline = val
 
-        body_text = soup.get_text().lower()
+        full_text_norm = normalizar_texto(soup.get_text())
 
         # Detección de Facultad
-        match_fac = re.search(r'facultad de [a-záéíóúñ\s,]+', f"{raw_grantor.lower()} {body_text}")
+        match_fac = re.search(r'facultad de [a-záéíóúñ\s,]+', f"{raw_grantor.lower()} {soup.get_text().lower()}")
         if match_fac:
             cand = match_fac.group(0).split('\n')[0].split('-')[0].strip().title()
             if len(cand) < 65 and "Facultad" in cand:
@@ -143,7 +150,7 @@ def extraer_metadatos_dspace(url_input):
 
         if not facultad_detectada:
             for fac_nombre, keywords in FACULTADES_MAP:
-                if any(kw in body_text for kw in keywords):
+                if any(kw in full_text_norm for kw in keywords):
                     facultad_detectada = fac_nombre
                     break
 
@@ -151,14 +158,16 @@ def extraer_metadatos_dspace(url_input):
         if raw_discipline:
             carrera_detectada = raw_discipline.strip()
         else:
-            if "turismo" in body_text:
+            if "agronomia" in full_text_norm or "agronomica" in full_text_norm:
+                carrera_detectada = "Ingeniería Agronómica"
+            elif "veterinaria" in full_text_norm:
+                carrera_detectada = "Medicina Veterinaria"
+            elif "turismo" in full_text_norm:
                 carrera_detectada = "Turismo"
-            elif "gastronomía" in body_text or "gastronomia" in body_text:
+            elif "gastronomia" in full_text_norm:
                 carrera_detectada = "Gastronomía"
-            elif "hotelería" in body_text or "hoteleria" in body_text:
-                carrera_detectada = "Hotelería"
 
-    # Formatear nombres de autores
+    # Formatear nombres de autores (APELLIDOS NOMBRES -> NOMBRES APELLIDOS)
     autores_formateados = []
     for a in raw_authors:
         a_clean = re.sub(r'\s+', ' ', a).strip()
@@ -172,8 +181,8 @@ def extraer_metadatos_dspace(url_input):
 
     return {
         "autores": autores_formateados if autores_formateados else ["APELLIDOS NOMBRES ESTUDIANTE"],
-        "facultad": facultad_detectada if facultad_detectada else "Facultad de Ciencias de la Hospitalidad",
-        "carrera": carrera_detectada if carrera_detectada else "Turismo",
+        "facultad": facultad_detectada if facultad_detectada else "Facultad de Ciencias Agropecuarias",
+        "carrera": carrera_detectada if carrera_detectada else "Ingeniería Agronómica",
         "handle": handle_official
     }
 
@@ -189,7 +198,7 @@ def crear_documento_word(datos):
         section.left_margin = Inches(1.0)
         section.right_margin = Inches(1.0)
 
-    # 1. ENCABEZADO CON LOGO Y FORMATO OFICIAL
+    # ENCABEZADO CON LOGO
     table_header = doc.add_table(rows=1, cols=2)
     table_header.alignment = WD_TABLE_ALIGNMENT.CENTER
     table_header.autofit = False
@@ -242,7 +251,7 @@ def crear_documento_word(datos):
 
     doc.add_paragraph()
 
-    # 2. TÍTULO
+    # TÍTULO
     p_titulo = doc.add_paragraph()
     p_titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p_titulo.paragraph_format.space_before = Pt(24)
@@ -252,7 +261,7 @@ def crear_documento_word(datos):
     run_titulo.font.size = Pt(13)
     run_titulo.font.bold = True
 
-    # 3. CUERPO DEL TEXTO
+    # CUERPO DEL TEXTO
     p_cuerpo = doc.add_paragraph()
     p_cuerpo.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
     p_cuerpo.paragraph_format.line_spacing = 1.15
@@ -288,7 +297,7 @@ def crear_documento_word(datos):
     r.font.name = 'Arial'
     r.font.size = Pt(11)
 
-    # 4. FECHA
+    # FECHA
     p_fecha = doc.add_paragraph()
     p_fecha.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_fecha.paragraph_format.space_after = Pt(28)
@@ -298,7 +307,7 @@ def crear_documento_word(datos):
     r_fecha.font.name = 'Arial'
     r_fecha.font.size = Pt(11)
 
-    # 5. FIRMA DEL REFERENCISTA
+    # FIRMA
     p_atentamente = doc.add_paragraph()
     p_atentamente.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p_atentamente.paragraph_format.space_after = Pt(40)
@@ -329,7 +338,7 @@ def crear_documento_word(datos):
     for _ in range(3):
         doc.add_paragraph()
 
-    # 6. PIE DE PÁGINA CON EL LINK OFICIAL Y EXACTO
+    # PIE DE PÁGINA
     p_link = doc.add_paragraph()
     p_link.alignment = WD_ALIGN_PARAGRAPH.LEFT
     p_link.paragraph_format.space_before = Pt(0)
@@ -368,7 +377,7 @@ st.markdown("### 1. Parámetros de la Consulta")
 col1, col2, col3 = st.columns([3, 2, 2])
 
 with col1:
-    url_input = st.text_input("URL o Handle de DSpace:", placeholder="Ej: https://dspace.ucuenca.edu.ec/handle/123456789/49287")
+    url_input = st.text_input("URL o Handle de DSpace:", placeholder="Ej: https://dspace.ucuenca.edu.ec/handle/123456789/49197")
 
 with col2:
     tipo_estudio = st.selectbox("Tipo de Titulación:", ["Pregrado", "Maestría", "Doctorado", "Complexivo"])
