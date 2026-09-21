@@ -24,7 +24,7 @@ st.set_page_config(
     layout="wide",
 )
 
-# Estilos CSS Personalizados estilo Universidad de Cuenca
+# Estilos CSS Personalizados estilo Universidad de Cuenca (Centrado)
 CSS_UCUENCA = """
 <style>
     /* Estilo General */
@@ -32,15 +32,10 @@ CSS_UCUENCA = """
         font-family: 'Arial', sans-serif;
         background-color: #f4f6f9;
     }
+    
+    /* Header Institucional Centrado */
     .uc-header {
-    text-align: center; /* <-- Añadir esta línea */
-    background: linear-gradient(90deg, #0F2B5B 0%, #163B7A 100%);
-    color: white;
-    padding: 20px 30px;
-    ...
-}
-    /* Header Institucional */
-    .uc-header {
+        text-align: center;
         background: linear-gradient(90deg, #0F2B5B 0%, #163B7A 100%);
         color: white;
         padding: 20px 30px;
@@ -63,15 +58,15 @@ CSS_UCUENCA = """
         margin-bottom: 0 !important;
     }
 
-    st.markdown(
-    """
-    <div class="uc-header">
-        <h1>UNIVERSIDAD DE CUENCA</h1>
-        <p>Centro de Documentación Regional “Juan Bautista Vázquez” (CDR-JBV) &bull; Certificación Institucional de No Adeudar</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+    /* Botones Principales */
+    .stButton>button {
+        background-color: #0F2B5B !important;
+        color: white !important;
+        border-radius: 6px !important;
+        font-weight: bold !important;
+        border: none !important;
+        padding: 10px 20px !important;
+        transition: all 0.3s ease !important;
     }
     .stButton>button:hover {
         background-color: #9E1B32 !important;
@@ -111,12 +106,12 @@ CSS_UCUENCA = """
 
 st.markdown(CSS_UCUENCA, unsafe_allow_html=True)
 
-# Banner de Encabezado Institucional
+# Banner de Encabezado Institucional Centrado con Nombre Oficial
 st.markdown(
     """
     <div class="uc-header">
         <h1>UNIVERSIDAD DE CUENCA</h1>
-        <p>Centro de Documentación Regional "Juan Bautista Vázquez" &bull; Certificación Institucional de No Adeudar</p>
+        <p>Centro de Documentación Regional “Juan Bautista Vázquez” (CDR-JBV) &bull; Certificación Institucional de No Adeudar</p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -513,7 +508,7 @@ def extraer_metadatos_dspace(url_input):
 
 
 # ------------------------------------------------------------------
-# GENERADOR DEL DOCUMENTO WORD (.DOCX) - FORMATO EXIGIDO
+# GENERADOR DEL DOCUMENTO WORD (.DOCX) - FORMATO INTACTO
 # ------------------------------------------------------------------
 def crear_documento_word(datos):
   doc = docx.Document()
@@ -531,7 +526,7 @@ def crear_documento_word(datos):
     section.left_margin = Inches(1.0)
     section.right_margin = Inches(1.0)
 
-  # ENCABEZADO: Tabla dividida
+  # ENCABEZADO
   table_header = doc.add_table(rows=1, cols=2)
   table_header.alignment = WD_TABLE_ALIGNMENT.CENTER
   table_header.autofit = False
@@ -581,7 +576,7 @@ def crear_documento_word(datos):
   r_tit.font.size = Pt(13)
   r_tit.font.bold = True
 
-  # CUERPO DEL CERTIFICADO
+  # CUERPO DEL CERTIFICADO (Se mantiene exacto a la redacción original)
   p_cuerpo = doc.add_paragraph()
   p_cuerpo.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
   p_cuerpo.paragraph_format.line_spacing = 1.15
