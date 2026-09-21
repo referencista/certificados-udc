@@ -15,15 +15,106 @@ import urllib3
 # Desactivar advertencias SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Configuración de la interfaz Streamlit
+# ------------------------------------------------------------------
+# CONFIGURACIÓN DE PÁGINA Y ESTILOS UCUENCA
+# ------------------------------------------------------------------
 st.set_page_config(
-    page_title="Generador de Certificados - UCuenca",
-    page_icon="📜",
+    page_title="UCuenca - Generador de Certificados de No Adeudar",
+    page_icon="🎓",
     layout="wide",
 )
 
-st.title("📜 Generador de Certificados de No Adeudar")
-st.subheader("Centro de Documentación Regional 'Juan Bautista Vázquez'")
+# Estilos CSS Personalizados estilo Universidad de Cuenca
+CSS_UCUENCA = """
+<style>
+    /* Estilo General */
+    body {
+        font-family: 'Arial', sans-serif;
+        background-color: #f4f6f9;
+    }
+    
+    /* Header Institucional */
+    .uc-header {
+        background: linear-gradient(90deg, #0F2B5B 0%, #163B7A 100%);
+        color: white;
+        padding: 20px 30px;
+        border-radius: 8px;
+        margin-bottom: 25px;
+        border-bottom: 4px solid #9E1B32;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+    .uc-header h1 {
+        color: #ffffff !important;
+        font-size: 26px !important;
+        font-weight: 700 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+    .uc-header p {
+        color: #d1dbe8 !important;
+        font-size: 14px !important;
+        margin-top: 5px !important;
+        margin-bottom: 0 !important;
+    }
+
+    /* Botones Principales */
+    .stButton>button {
+        background-color: #0F2B5B !important;
+        color: white !important;
+        border-radius: 6px !important;
+        font-weight: bold !important;
+        border: none !important;
+        padding: 10px 20px !important;
+        transition: all 0.3s ease !important;
+    }
+    .stButton>button:hover {
+        background-color: #9E1B32 !important;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2) !important;
+        color: white !important;
+    }
+
+    /* Botones de Descarga */
+    .stDownloadButton>button {
+        background-color: #1b6ec2 !important;
+        color: white !important;
+        border-radius: 6px !important;
+        font-weight: bold !important;
+        border: none !important;
+        transition: all 0.3s ease !important;
+    }
+    .stDownloadButton>button:hover {
+        background-color: #0F2B5B !important;
+        color: white !important;
+    }
+
+    /* Ajuste de Secciones / Expanders */
+    .streamlit-expanderHeader {
+        background-color: #ffffff !important;
+        border-left: 5px solid #0F2B5B !important;
+        border-radius: 4px !important;
+        font-weight: bold !important;
+        color: #0F2B5B !important;
+    }
+    
+    /* Inputs */
+    div[data-baseweb="input"] {
+        border-radius: 6px !important;
+    }
+</style>
+"""
+
+st.markdown(CSS_UCUENCA, unsafe_allow_html=True)
+
+# Banner de Encabezado Institucional
+st.markdown(
+    """
+    <div class="uc-header">
+        <h1>UNIVERSIDAD DE CUENCA</h1>
+        <p>Centro de Documentación Regional "Juan Bautista Vázquez" &bull; Certificación Institucional de No Adeudar</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ------------------------------------------------------------------
 # LISTA OFICIAL DE REFERENCISTAS
@@ -232,7 +323,7 @@ def normalizar_texto(texto):
 
 
 # ------------------------------------------------------------------
-# EXTRACCIÓN Y LIMPIEZA DE METADATOS VÍA API REST DSPACE 7 (UCUENCA)
+# EXTRACCIÓN Y LIMPIEZA DE METADATOS VÍA API REST DSPACE 7
 # ------------------------------------------------------------------
 @st.cache_data(ttl=3600, show_spinner=False)
 def extraer_metadatos_dspace(url_input):
@@ -279,7 +370,7 @@ def extraer_metadatos_dspace(url_input):
   if not data:
     return {
         "autores": ["APELLIDOS, NOMBRES ESTUDIANTE"],
-        "facultad": "",
+        "facultad": "Facultad de ",
         "carrera": "",
         "handle": handle_official,
     }
@@ -365,7 +456,7 @@ def extraer_metadatos_dspace(url_input):
   carrera_detectada = ""
   for cand in candidatos_carrera:
     cand_clean = re.sub(
-        r"^(Universidad de Cuenca\.\s*|Facultad de [^.]+\.\s*)",
+        r"^(Universidad de Cuenca[\.\,\-]?\s*|Facultad de [^.]+\.\s*)",
         "",
         cand,
         flags=re.I,
@@ -405,14 +496,18 @@ def extraer_metadatos_dspace(url_input):
           if autores_formateados
           else ["APELLIDOS, NOMBRES ESTUDIANTE"]
       ),
-      "facultad": facultad_detectada,
+      "facultad": (
+          facultad_detectada
+          if facultad_detectada
+          else "Facultad de Ciencias Químicas"
+      ),
       "carrera": carrera_detectada,
       "handle": handle_official,
   }
 
 
 # ------------------------------------------------------------------
-# GENERADOR DEL DOCUMENTO WORD (.DOCX) - FORMATO EXACTO
+# GENERADOR DEL DOCUMENTO WORD (.DOCX) - FORMATO EXIGIDO
 # ------------------------------------------------------------------
 def crear_documento_word(datos):
   doc = docx.Document()
@@ -423,14 +518,14 @@ def crear_documento_word(datos):
   font_normal.name = "Arial"
   font_normal.size = Pt(11)
 
-  # Márgenes de la página
+  # Márgenes
   for section in doc.sections:
     section.top_margin = Inches(0.9)
     section.bottom_margin = Inches(0.9)
     section.left_margin = Inches(1.0)
     section.right_margin = Inches(1.0)
 
-  # ENCABEZADO
+  # ENCABEZADO: Tabla dividida
   table_header = doc.add_table(rows=1, cols=2)
   table_header.alignment = WD_TABLE_ALIGNMENT.CENTER
   table_header.autofit = False
@@ -480,11 +575,27 @@ def crear_documento_word(datos):
   r_tit.font.size = Pt(13)
   r_tit.font.bold = True
 
-  # CUERPO DEL CERTIFICADO CON FORMATO EXACTO
+  # CUERPO DEL CERTIFICADO
   p_cuerpo = doc.add_paragraph()
   p_cuerpo.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
   p_cuerpo.paragraph_format.line_spacing = 1.15
   p_cuerpo.paragraph_format.space_after = Pt(24)
+
+  fac_clean = re.sub(
+      r"^(Universidad de Cuenca[\.\,\-]?\s*)", "", datos["facultad"], flags=re.I
+  ).strip()
+  if not fac_clean.lower().startswith("facultad de") and fac_clean:
+    fac_clean = f"Facultad de {fac_clean}"
+
+  carr_clean = re.sub(
+      r"^(Universidad de Cuenca[\.\,\-]?\s*)", "", datos["carrera"], flags=re.I
+  ).strip()
+  carr_clean = re.sub(
+      r"^(carrera de|programa de|maestría en|doctorado en)\s*",
+      "",
+      carr_clean,
+      flags=re.I,
+  ).strip()
 
   tipo = datos.get("tipo_estudio", "Pregrado")
   if tipo == "Maestría":
@@ -512,9 +623,8 @@ def crear_documento_word(datos):
   r_ced.font.bold = True
 
   r_c3 = p_cuerpo.add_run(
-      f', estudiante de la {datos["facultad"]} {prefix_carrera}'
-      f' {datos["carrera"]}, no adeuda ningún bien, ni material bibliográfico'
-      " en esta dependencia."
+      f", estudiante de la {fac_clean} {prefix_carrera} {carr_clean}, no adeuda"
+      " ningún bien, ni material bibliográfico en esta dependencia."
   )
   r_c3.font.name = "Arial"
 
@@ -563,7 +673,7 @@ def crear_documento_word(datos):
   r_h.font.underline = True
   r_h.font.color.rgb = RGBColor(0, 51, 153)
 
-  # VERSIÓN (Desplazada dos espacios más abajo)
+  # VERSIÓN
   doc.add_paragraph()
   doc.add_paragraph()
 
@@ -580,9 +690,9 @@ def crear_documento_word(datos):
 
 
 # ------------------------------------------------------------------
-# INTERFAZ PRINCIPAL STREAMLIT
+# INTERFAZ PRINCIPAL EN STREAMLIT
 # ------------------------------------------------------------------
-st.markdown("### 1. Parámetros de la Consulta")
+st.markdown("#### 1. Parámetros de la Consulta DSpace")
 
 col1, col2, col3 = st.columns([3, 2, 2])
 
@@ -602,9 +712,7 @@ with col3:
   referencista_sel = st.selectbox("Referencista que firma:", nombres_ref)
 
 btn_procesar = st.button(
-    "🔍 Extraer y Preparar Certificado(s)",
-    type="primary",
-    use_container_width=True,
+    "🔍 Consultar DSpace y Generar Documento(s)", use_container_width=True
 )
 
 if btn_procesar or "datos_cargados" in st.session_state:
@@ -613,7 +721,7 @@ if btn_procesar or "datos_cargados" in st.session_state:
       st.warning("⚠️ Por favor ingresa la URL o Handle de DSpace.")
       st.stop()
 
-    with st.spinner("Procesando información de DSpace..."):
+    with st.spinner("Conectando con el repositorio DSpace de la UCuenca..."):
       meta = extraer_metadatos_dspace(url_input)
       st.session_state["datos_cargados"] = meta
 
@@ -623,20 +731,24 @@ if btn_procesar or "datos_cargados" in st.session_state:
   )
 
   st.markdown("---")
-  st.markdown("### 2. Confirmación de Metadatos y Estudiantes")
+  st.markdown("#### 2. Validación de Metadatos Extramunicipales y Estudiantes")
 
   col_f, col_c = st.columns(2)
   with col_f:
-    facultad_final = st.text_input("Facultad:", value=meta["facultad"])
+    facultad_final = st.text_input("Facultad Detectada:", value=meta["facultad"])
   with col_c:
-    carrera_final = st.text_input("Carrera / Programa:", value=meta["carrera"])
+    carrera_final = st.text_input(
+        "Carrera / Programa Detectado:", value=meta["carrera"]
+    )
 
-  st.markdown(f"#### Autores Detectados ({len(meta['autores'])})")
+  st.markdown(f"**Estudiantes / Autores encontrados ({len(meta['autores'])})**")
 
   certificados_generados = []
 
   for idx, autor_nombre in enumerate(meta["autores"], start=1):
-    with st.expander(f"👤 Estudiante #{idx}: {autor_nombre}", expanded=True):
+    with st.expander(
+        f"🎓 Estudiante #{idx}: {autor_nombre}", expanded=True
+    ):
       nom_est = st.text_input(
           f"Nombre Estudiante #{idx}:", value=autor_nombre, key=f"nom_{idx}"
       )
@@ -654,9 +766,7 @@ if btn_procesar or "datos_cargados" in st.session_state:
 
       buf = crear_documento_word(payload)
       st.download_button(
-          label=(
-              f"📥 Descargar Certificado Word (.docx) - Estudiante {idx}"
-          ),
+          label=f"📄 Descargar Certificado Word - Estudiante {idx}",
           data=buf,
           file_name=f"Certificado_{nom_est.replace(' ', '_')}.docx",
           mime=(
@@ -679,11 +789,10 @@ if btn_procesar or "datos_cargados" in st.session_state:
     zip_buffer.seek(0)
     st.download_button(
         label=(
-            "📦 Descargar TODOS los Certificados"
-            f" ({len(certificados_generados)} archivos .ZIP)"
+            "📦 Descargar TODOS los Certificados en Un Archivo ZIP"
+            f" ({len(certificados_generados)} archivos)"
         ),
         data=zip_buffer,
         file_name="Certificados_No_Adeudar_UCuenca.zip",
         mime="application/zip",
-        type="primary",
     )
