@@ -67,8 +67,9 @@ def normalizar_texto(texto):
     return texto.lower()
 
 # ------------------------------------------------------------------
-# EXTRACCIÓN AVANZADA DE METADATOS DSPACE
+# EXTRACCIÓN AVANZADA DE METADATOS DSPACE CON CACHÉ DE MEMORIA RAM
 # ------------------------------------------------------------------
+@st.cache_data(ttl=3600, show_spinner=False)
 def extraer_metadatos_dspace(url_input):
     url_clean = url_input.strip()
     match_handle = re.search(r'(\d+/\d+)', url_clean)
