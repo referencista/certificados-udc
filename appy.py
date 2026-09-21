@@ -111,7 +111,7 @@ st.markdown(
     """
     <div class="uc-header">
         <h1>UNIVERSIDAD DE CUENCA</h1>
-        <p>Centro de Documentación Regional “Juan Bautista Vázquez” (CDR-JBV) &bull; Certificación Institucional de No Adeudar</p>
+        <p>Centro de Documentación Regional “Juan Bautista Vázquez” (CDR-JBV) &bull; Certificado de No Adeudar</p>
     </div>
     """,
     unsafe_allow_html=True,
