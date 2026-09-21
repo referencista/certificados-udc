@@ -680,7 +680,7 @@ def crear_documento_word(datos):
 
   p_ver = doc.add_paragraph()
   p_ver.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-  r_v = p_ver.add_run("Version: 2.0")
+  r_v = p_ver.add_run("Version: 1.0")
   r_v.font.name = "Arial"
   r_v.font.size = Pt(9.5)
 
