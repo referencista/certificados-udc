@@ -58,107 +58,6 @@ MESES = [
     "diciembre",
 ]
 
-# Mapa exhaustivo de facultades y palabras clave
-FACULTADES_MAP = [
-    (
-        "Facultad de Ciencias Agropecuarias",
-        [
-            "agropecuaria",
-            "agropecuarias",
-            "agronomía",
-            "agronomia",
-            "agronómica",
-            "agronomica",
-            "veterinaria",
-            "medicina veterinaria",
-        ],
-    ),
-    (
-        "Facultad de Ciencias de la Hospitalidad",
-        [
-            "hospitalidad",
-            "turismo",
-            "gastronomía",
-            "gastronomia",
-            "hotelería",
-            "hoteleria",
-        ],
-    ),
-    (
-        "Facultad de Arquitectura y Urbanismo",
-        [
-            "arquitectura",
-            "diseño gráfico",
-            "diseño de interiores",
-            "diseño interior",
-        ],
-    ),
-    (
-        "Facultad de Ciencias Económicas y Administrativas",
-        [
-            "económica",
-            "economía",
-            "administración",
-            "contabilidad",
-            "auditoría",
-            "mercadotecnia",
-            "finanzas",
-            "comercio exterior",
-        ],
-    ),
-    (
-        "Facultad de Ingeniería",
-        [
-            "ingeniería civil",
-            "sistemas",
-            "computación",
-            "eléctrica",
-            "electrónica",
-            "telecomunicaciones",
-            "industrial",
-        ],
-    ),
-    (
-        "Facultad de Ciencias Médicas",
-        [
-            "médica",
-            "medicina",
-            "enfermería",
-            "fisioterapia",
-            "laboratorio clínico",
-            "nutrición",
-        ],
-    ),
-    (
-        "Facultad de Ciencias Químicas",
-        [
-            "química",
-            "bioquímica",
-            "farmacia",
-            "ingeniería química",
-            "ingeniería ambiental",
-        ],
-    ),
-    (
-        "Facultad de Filosofía, Letras y Ciencias de la Educación",
-        [
-            "filosofía",
-            "educación",
-            "comunicación",
-            "idiomas",
-            "lengua",
-            "historia",
-            "pedagogía",
-        ],
-    ),
-    (
-        "Facultad de Jurisprudencia, Ciencias Políticas y Sociales",
-        ["jurisprudencia", "derecho", "trabajo social", "orientación familiar"],
-    ),
-    ("Facultad de Artes", ["artes", "música", "danza", "teatro"]),
-    ("Facultad de Psicología", ["psicología", "psicología clínica"]),
-]
-
 
 def normalizar_texto(texto):
   if not texto:
@@ -234,7 +133,7 @@ def extraer_metadatos_dspace(url_input):
           return val
     return default
 
-  # 1. Autores en MAYÚSCULAS conservando comas y orden original (APELLIDOS, NOMBRES)
+  # Autores
   raw_authors = [
       a.get("value")
       for a in metadata.get("dc.contributor.author", [])
@@ -246,7 +145,7 @@ def extraer_metadatos_dspace(url_input):
     if a_clean and a_clean not in autores_formateados:
       autores_formateados.append(a_clean)
 
-  # 2. Facultad y Carrera
+  # Facultad y Carrera
   facultad = get_meta_value(
       [
           "thesis.degree.grantor",
@@ -267,7 +166,7 @@ def extraer_metadatos_dspace(url_input):
       default="",
   )
 
-  # 3. Handle oficial
+  # Handle oficial
   uri_items = metadata.get("dc.identifier.uri", [])
   for uri in uri_items:
     val_uri = uri.get("value", "")
@@ -292,17 +191,27 @@ def extraer_metadatos_dspace(url_input):
 
 
 # ------------------------------------------------------------------
-# GENERADOR DEL DOCUMENTO WORD (.DOCX)
+# GENERADOR DEL DOCUMENTO WORD (.DOCX) - TODO EN ARIAL
 # ------------------------------------------------------------------
 def crear_documento_word(datos):
   doc = docx.Document()
 
+  # Configuración global del estilo base a Arial
+  style_normal = doc.styles["Normal"]
+  font_normal = style_normal.font
+  font_normal.name = "Arial"
+  font_normal.size = Pt(11)
+
+  # Márgenes de la página
   for section in doc.sections:
     section.top_margin = Inches(0.9)
     section.bottom_margin = Inches(0.9)
     section.left_margin = Inches(1.0)
     section.right_margin = Inches(1.0)
 
+  # ------------------------------------------------------------------
+  # ENCABEZADO: Separa el logo de la Universidad del texto normativo
+  # ------------------------------------------------------------------
   table_header = doc.add_table(rows=1, cols=2)
   table_header.alignment = WD_TABLE_ALIGNMENT.CENTER
   table_header.autofit = False
@@ -311,39 +220,54 @@ def crear_documento_word(datos):
       table_header.rows[0].cells[0],
       table_header.rows[0].cells[1],
   )
-  cell_left.width, cell_right.width = Inches(2.1), Inches(4.4)
+  cell_left.width = Inches(2.6)
+  cell_right.width = Inches(3.9)
   cell_left.vertical_alignment = cell_right.vertical_alignment = (
       WD_ALIGN_VERTICAL.CENTER
   )
 
+  # Celda Izquierda: Logo Grande
   p_logo = cell_left.paragraphs[0]
   p_logo.alignment = WD_ALIGN_PARAGRAPH.LEFT
+  p_logo.paragraph_format.space_after = Pt(0)
   run_logo = p_logo.add_run("UCUENCA")
-  run_logo.font.name, run_logo.font.size, run_logo.font.bold = (
-      "Arial",
-      Pt(22),
-      True,
-  )
+  run_logo.font.name = "Arial"
+  run_logo.font.size = Pt(28)  # Logo más grande
+  run_logo.font.bold = True
   run_logo.font.color.rgb = RGBColor(15, 43, 91)
 
+  # Celda Derecha: Texto Normativo
   p_hdr = cell_right.paragraphs[0]
   p_hdr.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-  p_hdr.paragraph_format.line_spacing = 1.0
-  p_hdr.add_run(
-      "FORMATO DE NO ADEUDAR MATERIAL BIBLIOGRÁFICO A LA\nBIBLIOTECA\nUC-CDRJVB-FOR-020\nPágina"
-      " 1 de 1"
-  ).font.size = Pt(8.5)
+  p_hdr.paragraph_format.line_spacing = 1.15
+  p_hdr.paragraph_format.space_after = Pt(0)
+
+  run_hdr = p_hdr.add_run(
+      "FORMATO DE NO ADEUDAR MATERIAL BIBLIOGRÁFICO A LA BIBLIOTECA\n"
+      "UC-CDRJVB-FOR-020\n"
+      "Página 1 de 1"
+  )
+  run_hdr.font.name = "Arial"
+  run_hdr.font.size = Pt(8.5)
 
   doc.add_paragraph()
 
+  # ------------------------------------------------------------------
+  # TÍTULO PRINCIPAL
+  # ------------------------------------------------------------------
   p_titulo = doc.add_paragraph()
   p_titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
-  p_titulo.paragraph_format.space_before = (
-      p_titulo.paragraph_format.space_after
-  ) = Pt(24)
-  r_tit = p_titulo.add_run("CERTIFICADO DE NO ADEUDAR")
-  r_tit.font.name, r_tit.font.size, r_tit.font.bold = "Arial", Pt(13), True
+  p_titulo.paragraph_format.space_before = Pt(24)
+  p_titulo.paragraph_format.space_after = Pt(24)
 
+  r_tit = p_titulo.add_run("CERTIFICADO DE NO ADEUDAR")
+  r_tit.font.name = "Arial"
+  r_tit.font.size = Pt(13)
+  r_tit.font.bold = True
+
+  # ------------------------------------------------------------------
+  # CUERPO DEL CERTIFICADO
+  # ------------------------------------------------------------------
   p_cuerpo = doc.add_paragraph()
   p_cuerpo.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
   p_cuerpo.paragraph_format.line_spacing = 1.15
@@ -360,55 +284,92 @@ def crear_documento_word(datos):
       )
   )
 
-  p_cuerpo.add_run(
+  r_c1 = p_cuerpo.add_run(
       'El Centro de Documentación Regional "Juan Bautista Vázquez" certifica'
       " que "
-  ).font.name = "Arial"
+  )
+  r_c1.font.name = "Arial"
+
   r_nom = p_cuerpo.add_run(f'{datos["autor"]}')
+  r_nom.font.name = "Arial"
   r_nom.font.bold = True
 
-  p_cuerpo.add_run(", portador(a) de la cédula de ciudadanía No. ")
+  r_c2 = p_cuerpo.add_run(", portador(a) de la cédula de ciudadanía No. ")
+  r_c2.font.name = "Arial"
 
-  # Espacio subrayado listo para ser completado a mano en el Word impreso
   r_ced = p_cuerpo.add_run("____________________")
+  r_ced.font.name = "Arial"
   r_ced.font.bold = True
 
-  p_cuerpo.add_run(
+  r_c3 = p_cuerpo.add_run(
       f', estudiante de la {datos["facultad"]} {prefix_carrera}'
       f' {datos["carrera"]}, no adeuda ningún bien, ni material bibliográfico'
       " en esta dependencia."
   )
+  r_c3.font.name = "Arial"
 
+  # ------------------------------------------------------------------
+  # FECHA
+  # ------------------------------------------------------------------
   p_fecha = doc.add_paragraph()
   p_fecha.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-  hoy = datetime.now()
-  p_fecha.add_run(f"Cuenca, {hoy.day} de {MESES[hoy.month - 1]} de {hoy.year}")
+  p_fecha.paragraph_format.space_after = Pt(24)
 
+  hoy = datetime.now()
+  r_fecha = p_fecha.add_run(
+      f"Cuenca, {hoy.day} de {MESES[hoy.month - 1]} de {hoy.year}"
+  )
+  r_fecha.font.name = "Arial"
+
+  # ------------------------------------------------------------------
+  # FIRMAS
+  # ------------------------------------------------------------------
   doc.add_paragraph().paragraph_format.space_after = Pt(30)
+
   p_atentamente = doc.add_paragraph()
   p_atentamente.alignment = WD_ALIGN_PARAGRAPH.CENTER
-  p_atentamente.add_run(
+  r_at = p_atentamente.add_run(
       "Atentamente,\n\n________________________________________"
   )
+  r_at.font.name = "Arial"
 
   p_firma = doc.add_paragraph()
   p_firma.alignment = WD_ALIGN_PARAGRAPH.CENTER
-  r_f1 = p_firma.add_run(f'\n{datos["ref_nombre"]}\n')
-  r_f1.font.bold = True
-  p_firma.add_run(f'{datos["ref_cargo"]}\nCDR "Juan Bautista Vázquez"')
 
+  r_f1 = p_firma.add_run(f'\n{datos["ref_nombre"]}\n')
+  r_f1.font.name = "Arial"
+  r_f1.font.bold = True
+
+  r_f2 = p_firma.add_run(f'{datos["ref_cargo"]}\nCDR "Juan Bautista Vázquez"')
+  r_f2.font.name = "Arial"
+
+  # ------------------------------------------------------------------
+  # ENLACE DSPACE
+  # ------------------------------------------------------------------
   for _ in range(2):
     doc.add_paragraph()
 
   p_link = doc.add_paragraph()
-  p_link.add_run("Link: ").font.bold = True
+  r_l1 = p_link.add_run("Link: ")
+  r_l1.font.name = "Arial"
+  r_l1.font.bold = True
+
   r_h = p_link.add_run(datos["handle"])
+  r_h.font.name = "Arial"
   r_h.font.underline = True
   r_h.font.color.rgb = RGBColor(0, 51, 153)
 
+  # ------------------------------------------------------------------
+  # VERSIÓN (Desplazada dos espacios más abajo)
+  # ------------------------------------------------------------------
+  doc.add_paragraph()
+  doc.add_paragraph()
+
   p_ver = doc.add_paragraph()
   p_ver.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-  p_ver.add_run("Version: 2.0").font.size = Pt(9.5)
+  r_v = p_ver.add_run("Version: 2.0")
+  r_v.font.name = "Arial"
+  r_v.font.size = Pt(9.5)
 
   buffer = io.BytesIO()
   doc.save(buffer)
