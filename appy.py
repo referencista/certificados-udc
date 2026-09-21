@@ -11,10 +11,10 @@ import requests
 import urllib3
 import streamlit as st
 
-# Desactivar advertencias SSL de DSpace
+# Desactivar advertencias SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-# Configuración de la página web
+# Configuración de la interfaz Streamlit
 st.set_page_config(
     page_title="Generador de Certificados - UCuenca", 
     page_icon="📜",
@@ -44,32 +44,28 @@ MESES = [
     "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
 ]
 
-if "metadatos_dspace" not in st.session_state:
-    st.session_state["metadatos_dspace"] = None
-
-# Mapeo inteligente de Facultades
 FACULTADES_MAP = [
-    ("Facultad de Arquitectura y Urbanismo", ["arquitectura", "diseño gráfico", "diseño de interiores", "diseño interior"]),
-    ("Facultad de Ciencias Agropecuarias", ["agropecuaria", "agronomía", "agronomia", "veterinaria", "medicina veterinaria"]),
-    ("Facultad de Ciencias Económicas y Administrativas", ["económica", "economía", "administración", "contabilidad", "auditoría", "mercadotecnia", "finanzas", "comercio exterior"]),
-    ("Facultad de Ingeniería", ["ingeniería civil", "sistemas", "computación", "eléctrica", "electrónica", "telecomunicaciones", "industrial"]),
-    ("Facultad de Ciencias Médicas", ["médica", "medicina", "enfermería", "fisioterapia", "laboratorio clínico", "nutrición", "fonoaudiología", "estimulación temprana"]),
+    ("Facultad de Arquitectura y Urbanismo", ["arquitectura", "diseño gráfico", "diseño de interiores"]),
+    ("Facultad de Ciencias Agropecuarias", ["agropecuaria", "agronomía", "veterinaria"]),
+    ("Facultad de Ciencias Económicas y Administrativas", ["económica", "economía", "administración", "contabilidad", "auditoría", "mercadotecnia", "finanzas"]),
+    ("Facultad de Ingeniería", ["ingeniería civil", "sistemas", "computación", "eléctrica", "electrónica", "telecomunicaciones"]),
+    ("Facultad de Ciencias Médicas", ["médica", "medicina", "enfermería", "fisioterapia", "laboratorio clínico", "nutrición"]),
     ("Facultad de Ciencias Químicas", ["química", "bioquímica", "farmacia", "ingeniería química", "ingeniería ambiental"]),
-    ("Facultad de Filosofía, Letras y Ciencias de la Educación", ["filosofía", "educación", "comunicación", "idiomas", "lengua", "historia", "geografía", "matemáticas", "física", "pedagogía"]),
-    ("Facultad de Jurisprudencia, Ciencias Políticas y Sociales", ["jurisprudencia", "derecho", "trabajo social", "orientación familiar", "ciencias políticas"]),
-    ("Facultad de Artes", ["artes", "música", "danza", "teatro", "artes visuales", "artes escénicas"]),
-    ("Facultad de Psicología", ["psicología", "psicología clínica", "psicología educativa"])
+    ("Facultad de Filosofía, Letras y Ciencias de la Educación", ["filosofía", "educación", "comunicación", "idiomas", "lengua", "historia", "pedagogía"]),
+    ("Facultad de Jurisprudencia, Ciencias Políticas y Sociales", ["jurisprudencia", "derecho", "trabajo social", "orientación familiar"]),
+    ("Facultad de Artes", ["artes", "música", "danza", "teatro"]),
+    ("Facultad de Psicología", ["psicología", "psicología clínica"])
 ]
 
 # ------------------------------------------------------------------
-# EXTRACCIÓN AVANZADA DE METADATOS DSPACE UCUENCA
+# EXTRACCIÓN DE METADATOS DSPACE
 # ------------------------------------------------------------------
 def extraer_metadatos_dspace(url_input):
     url_clean = url_input.strip()
     match_handle = re.search(r'(\d+/\d+)', url_clean)
     
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'es-ES,es;q=0.9,en;q=0.8'
     }
@@ -87,134 +83,84 @@ def extraer_metadatos_dspace(url_input):
         urls_to_try.append(url_clean)
         if "?mode=full" not in url_clean:
             urls_to_try.insert(0, url_clean + ("&mode=full" if "?" in url_clean else "?mode=full"))
-    else:
-        return None, "Ingrese una URL válida de DSpace o un código Handle (ej. 123456789/40123)."
 
     html_content = ""
     for u in urls_to_try:
         try:
-            resp = requests.get(u, headers=headers, timeout=12, verify=False)
+            resp = requests.get(u, headers=headers, timeout=8, verify=False)
             if resp.status_code == 200 and len(resp.text) > 500:
                 html_content = resp.text
                 break
         except Exception:
             continue
 
-    if not html_content:
-        return None, "No se pudo consultar el repositorio de DSpace. Verifique que la URL o Handle sea correcto."
+    raw_authors, facultad_detectada, carrera_detectada = [], "", ""
 
-    soup = BeautifulSoup(html_content, 'html.parser')
+    if html_content:
+        soup = BeautifulSoup(html_content, 'html.parser')
 
-    # 1. AUTORES
-    raw_authors = []
+        # Autores
+        meta_authors = soup.find_all('meta', {'name': re.compile(r'^(DC\.creator|citation_author|dc\.contributor\.author)$', re.I)})
+        for ma in meta_authors:
+            val = ma.get('content', '').strip()
+            if val and val not in raw_authors:
+                raw_authors.append(val)
 
-    # Opción A: Meta tags
-    meta_authors = soup.find_all('meta', {'name': re.compile(r'^(DC\.creator|citation_author|dc\.contributor\.author)$', re.I)})
-    for ma in meta_authors:
-        val = ma.get('content', '').strip()
-        if val and val not in raw_authors:
-            raw_authors.append(val)
+        for row in soup.find_all('tr'):
+            tds = row.find_all(['td', 'th'])
+            if len(tds) >= 2:
+                lbl = tds[0].get_text().strip().lower()
+                val = tds[1].get_text().strip()
+                if ('dc.contributor.author' in lbl or 'dc.creator' in lbl) and val:
+                    if val not in raw_authors:
+                        raw_authors.append(val)
 
-    # Opción B: Tabla en ?mode=full
-    for row in soup.find_all('tr'):
-        tds = row.find_all(['td', 'th'])
-        if len(tds) >= 2:
-            lbl = tds[0].get_text().strip().lower()
-            val = tds[1].get_text().strip()
-            if ('dc.contributor.author' in lbl or 'dc.creator' in lbl) and val:
-                if val not in raw_authors:
-                    raw_authors.append(val)
+        # Facultad y Carrera
+        raw_grantor, raw_discipline = "", ""
+        for row in soup.find_all('tr'):
+            tds = row.find_all(['td', 'th'])
+            if len(tds) >= 2:
+                lbl = tds[0].get_text().strip().lower()
+                val = tds[1].get_text().strip()
+                if 'thesis.degree.grantor' in lbl or 'dc.publisher' in lbl:
+                    if not raw_grantor: raw_grantor = val
+                elif 'thesis.degree.discipline' in lbl:
+                    if not raw_discipline: raw_discipline = val
 
-    # Reordenar y formatear nombres de autores
+        body_text = soup.get_text()
+        
+        match_fac = re.search(r'Facultad de [A-Za-zÁÉÍÓÚáéíóúñÑ\s,]+', f"{raw_grantor} {body_text}")
+        if match_fac:
+            cand = match_fac.group(0).split('\n')[0].split('-')[0].strip()
+            if len(cand) < 65:
+                facultad_detectada = re.sub(r'[.\,\;]+$', '', cand)
+
+        if not facultad_detectada:
+            for fac_nombre, keywords in FACULTADES_MAP:
+                if any(kw in body_text.lower() for kw in keywords):
+                    facultad_detectada = fac_nombre
+                    break
+
+        carrera_detectada = raw_discipline.strip() if raw_discipline else ""
+
+    # Formatear nombres de autores
     autores_formateados = []
     for a in raw_authors:
         a_clean = re.sub(r'\s+', ' ', a).strip()
         if ',' in a_clean:
             parts = a_clean.split(',', 1)
-            apellidos = parts[0].strip()
-            nombres = parts[1].strip()
-            nombre_completo = f"{nombres} {apellidos}".upper()
+            nombre_completo = f"{parts[1].strip()} {parts[0].strip()}".upper()
         else:
             nombre_completo = a_clean.upper()
-        
         if nombre_completo not in autores_formateados:
             autores_formateados.append(nombre_completo)
 
-    # 2. FACULTAD Y CARRERA
-    raw_grantor = ""
-    raw_discipline = ""
-    raw_publisher = ""
-    raw_subjects = []
-
-    for row in soup.find_all('tr'):
-        tds = row.find_all(['td', 'th'])
-        if len(tds) >= 2:
-            lbl = tds[0].get_text().strip().lower()
-            val = tds[1].get_text().strip()
-            if 'thesis.degree.grantor' in lbl or 'dc.publisher' in lbl:
-                if not raw_grantor: raw_grantor = val
-            elif 'thesis.degree.discipline' in lbl:
-                if not raw_discipline: raw_discipline = val
-            elif 'dc.subject' in lbl and val:
-                raw_subjects.append(val)
-
-    # Colecciones y migas de pan
-    collections = soup.find_all(['a', 'span', 'li'], class_=re.compile(r'breadcrumb|collection|trail', re.I))
-    coll_text = " ".join([c.get_text().strip() for c in collections if c.get_text().strip()])
-
-    body_text = soup.get_text()
-
-    # Nivel Académico
-    full_str = f"{coll_text} {raw_discipline} {' '.join(raw_subjects)} {body_text}".lower()
-    nivel = "Maestría / Posgrado" if any(w in full_str for w in ["posgrado", "maestría", "maestria", "magíster", "master"]) else "Pregrado"
-
-    # Determinar Facultad
-    facultad_detectada = ""
-    match_fac = re.search(r'Facultad de [A-Za-zÁÉÍÓÚáéíóúñÑ\s,]+', f"{raw_grantor} {coll_text} {body_text}")
-    if match_fac:
-        candidate = match_fac.group(0).split('\n')[0].split('-')[0].strip()
-        candidate = re.sub(r'[.\,\;]+$', '', candidate)
-        if len(candidate) < 65:
-            facultad_detectada = candidate
-
-    if not facultad_detectada:
-        search_target = f"{raw_grantor} {raw_publisher} {coll_text} {raw_discipline} {' '.join(raw_subjects)}".lower()
-        for fac_nombre, keywords in FACULTADES_MAP:
-            if any(kw in search_target for kw in keywords):
-                facultad_detectada = fac_nombre
-                break
-
-    if not facultad_detectada:
-        facultad_detectada = "Facultad de Ciencias Químicas"
-
-    # Determinar Carrera
-    carrera_detectada = raw_discipline.strip() if raw_discipline else ""
-
-    if not carrera_detectada:
-        match_coll = re.search(r'([A-Za-zÁÉÍÓÚáéíóúñÑ\s]+)\s*-\s*(Pregrado|Posgrado|Tesis|Maestría)', f"{coll_text} {body_text}")
-        if match_coll:
-            cand = match_coll.group(1).strip()
-            if len(cand) > 3 and "Collections" not in cand:
-                carrera_detectada = cand
-
-    if not carrera_detectada:
-        match_car = re.search(r'Carrera de ([A-Za-zÁÉÍÓÚáéíóúñÑ\s]+)', f"{coll_text} {body_text}")
-        if match_car:
-            carrera_detectada = match_car.group(1).strip().split('\n')[0]
-
-    if not carrera_detectada and raw_subjects:
-        carrera_detectada = raw_subjects[0]
-
-    if not carrera_detectada:
-        carrera_detectada = "Bioquímica y Farmacia"
-
     return {
-        "autores": autores_formateados if autores_formateados else ["ESTUDIANTE APELLIDOS NOMBRES"],
-        "facultad": facultad_detectada.replace("Universidad de Cuenca.", "").strip(),
-        "carrera": carrera_detectada.strip(),
-        "nivel": nivel,
+        "autores": autores_formateados if autores_formateados else ["APELLIDOS NOMBRES ESTUDIANTE"],
+        "facultad": facultad_detectada if facultad_detectada else "Facultad de Ciencias Químicas",
+        "carrera": carrera_detectada if carrera_detectada else "Bioquímica y Farmacia",
         "handle": handle_official or url_clean
-    }, None
+    }
 
 # ------------------------------------------------------------------
 # GENERADOR DEL DOCUMENTO WORD (.DOCX)
@@ -228,7 +174,7 @@ def crear_documento_word(datos):
         section.left_margin = Inches(1.0)
         section.right_margin = Inches(1.0)
 
-    # ENCABEZADO
+    # 1. ENCABEZADO CON LOGO Y FORMATO OFICIAL
     table_header = doc.add_table(rows=1, cols=2)
     table_header.alignment = WD_TABLE_ALIGNMENT.CENTER
     table_header.autofit = False
@@ -242,7 +188,6 @@ def crear_documento_word(datos):
     cell_left.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
     cell_right.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
-    # Logo UCUENCA
     p_logo = cell_left.paragraphs[0]
     p_logo.alignment = WD_ALIGN_PARAGRAPH.LEFT
     p_logo.paragraph_format.space_before = Pt(0)
@@ -254,7 +199,6 @@ def crear_documento_word(datos):
     run_logo.font.bold = True
     run_logo.font.color.rgb = RGBColor(15, 43, 91)
 
-    # Bloque de texto
     p_hdr = cell_right.paragraphs[0]
     p_hdr.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_hdr.paragraph_format.line_spacing = 1.0
@@ -283,7 +227,7 @@ def crear_documento_word(datos):
 
     doc.add_paragraph()
 
-    # TÍTULO
+    # 2. TÍTULO
     p_titulo = doc.add_paragraph()
     p_titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p_titulo.paragraph_format.space_before = Pt(24)
@@ -293,13 +237,20 @@ def crear_documento_word(datos):
     run_titulo.font.size = Pt(13)
     run_titulo.font.bold = True
 
-    # CUERPO
+    # 3. CUERPO DEL TEXTO
     p_cuerpo = doc.add_paragraph()
     p_cuerpo.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
     p_cuerpo.paragraph_format.line_spacing = 1.15
     p_cuerpo.paragraph_format.space_after = Pt(24)
 
-    prefix_carrera = "de la Carrera de" if datos["nivel"] == "Pregrado" else "del Programa de"
+    # Definir la redacción según tipo de título
+    tipo = datos.get("tipo_estudio", "Pregrado")
+    if tipo == "Maestría":
+        prefix_carrera = "del Programa de Maestría en"
+    elif tipo == "Doctorado":
+        prefix_carrera = "del Programa de Doctorado en"
+    else:  # Pregrado o Complexivo
+        prefix_carrera = "de la Carrera de"
 
     p_cuerpo.add_run('El Centro de Documentación Regional "Juan Bautista Vázquez" certifica que ').font.name = 'Arial'
     p_cuerpo.runs[0].font.size = Pt(11)
@@ -323,7 +274,7 @@ def crear_documento_word(datos):
     r.font.name = 'Arial'
     r.font.size = Pt(11)
 
-    # FECHA
+    # 4. FECHA
     p_fecha = doc.add_paragraph()
     p_fecha.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_fecha.paragraph_format.space_after = Pt(28)
@@ -333,7 +284,7 @@ def crear_documento_word(datos):
     r_fecha.font.name = 'Arial'
     r_fecha.font.size = Pt(11)
 
-    # FIRMA
+    # 5. FIRMA DEL REFERENCISTA
     p_atentamente = doc.add_paragraph()
     p_atentamente.alignment = WD_ALIGN_PARAGRAPH.CENTER
     p_atentamente.paragraph_format.space_after = Pt(40)
@@ -364,7 +315,7 @@ def crear_documento_word(datos):
     for _ in range(3):
         doc.add_paragraph()
 
-    # PIE DE PÁGINA
+    # 6. PIE DE PÁGINA
     p_link = doc.add_paragraph()
     p_link.alignment = WD_ALIGN_PARAGRAPH.LEFT
     p_link.paragraph_format.space_before = Pt(0)
@@ -396,107 +347,101 @@ def crear_documento_word(datos):
     return buffer
 
 # ------------------------------------------------------------------
-# INTERFAZ DE USUARIO STREAMLIT
+# INTERFAZ PRINCIPAL STREAMLIT
 # ------------------------------------------------------------------
-st.markdown("### 1. Búsqueda por Enlace o Handle de DSpace")
+st.markdown("### 1. Parámetros de la Consulta")
 
-col_url, col_btn = st.columns([3, 1])
-with col_url:
+# Contenedor de formulario en la pantalla principal
+col1, col2, col3 = st.columns([3, 2, 2])
+
+with col1:
     url_input = st.text_input("URL o Handle de DSpace:", placeholder="Ej: https://dspace.ucuenca.edu.ec/handle/123456789/40123")
 
-with col_btn:
-    st.write(" ")
-    if st.button("🔍 Extraer Metadatos", type="primary"):
-        if url_input:
-            with st.spinner("Obteniendo información oficial de DSpace..."):
-                data, err = extraer_metadatos_dspace(url_input)
-                if err:
-                    st.error(err)
-                else:
-                    st.session_state["metadatos_dspace"] = data
-                    st.success(f"✅ ¡Éxito! Se detectó la **{data['facultad']}** - **{data['carrera']}** y **{len(data['autores'])} autor(es)**.")
+with col2:
+    tipo_estudio = st.selectbox("Tipo de Titulación:", ["Pregrado", "Maestría", "Doctorado", "Complexivo"])
 
-if st.session_state["metadatos_dspace"]:
-    data = st.session_state["metadatos_dspace"]
-    
-    st.markdown("---")
-    st.markdown("### 2. Configuración General")
-    
-    col_fac, col_car, col_niv, col_ref = st.columns(4)
-    with col_fac:
-        facultad_edit = st.text_input("Facultad:", value=data["facultad"])
-    with col_car:
-        carrera_edit = st.text_input("Carrera / Programa:", value=data["carrera"])
-    with col_niv:
-        nivel_index = 0 if data["nivel"] == "Pregrado" else 1
-        nivel_sel = st.selectbox("Nivel Académico:", ["Pregrado", "Maestría / Posgrado"], index=nivel_index)
-    with col_ref:
-        nombres_ref = sorted([r["nombre"] for r in LISTA_REFERENCISTAS])
-        referencista_sel = st.selectbox("Bibliotecario que firma:", nombres_ref)
+with col3:
+    nombres_ref = sorted([r["nombre"] for r in LISTA_REFERENCISTAS])
+    referencista_sel = st.selectbox("Referencista que firma:", nombres_ref)
 
-    st.markdown("---")
-    st.markdown(f"### 3. Estudiantes / Autores Encontrados ({len(data['autores'])})")
+btn_procesar = st.button("🔍 Extraer y Preparar Certificado(s)", type="primary", use_container_width=True)
 
+if btn_procesar or "datos_cargados" in st.session_state:
+    if btn_procesar:
+        if not url_input:
+            st.warning("⚠️ Por favor ingresa la URL o Handle de DSpace.")
+            st.stop()
+        
+        with st.spinner("Procesando información de DSpace..."):
+            meta = extraer_metadatos_dspace(url_input)
+            st.session_state["datos_cargados"] = meta
+
+    meta = st.session_state["datos_cargados"]
     ref_info = next(item for item in LISTA_REFERENCISTAS if item["nombre"] == referencista_sel)
 
-    datos_autores_para_descarga = []
+    st.markdown("---")
+    st.markdown("### 2. Confirmación de Metadatos y Estudiantes")
 
-    for idx, autor_nombre in enumerate(data["autores"], start=1):
-        with st.expander(f"👤 Autor #{idx}: {autor_nombre}", expanded=True):
+    col_f, col_c = st.columns(2)
+    with col_f:
+        facultad_final = st.text_input("Facultad:", value=meta["facultad"])
+    with col_c:
+        carrera_final = st.text_input("Carrera / Programa:", value=meta["carrera"])
+
+    st.markdown(f"#### Autores Detectados ({len(meta['autores'])})")
+
+    certificados_generados = []
+
+    for idx, autor_nombre in enumerate(meta["autores"], start=1):
+        with st.expander(f"👤 Estudiante #{idx}: {autor_nombre}", expanded=True):
             col_a, col_b = st.columns([3, 2])
             
             with col_a:
-                nom_final = st.text_input(f"Nombre Estudiante {idx}:", value=autor_nombre, key=f"nom_{idx}")
+                nom_est = st.text_input(f"Nombre Estudiante #{idx}:", value=autor_nombre, key=f"nom_{idx}")
             with col_b:
-                ced_final = st.text_input(f"Cédula de Ciudadanía {idx}:", placeholder="Ej: 0101234567", key=f"ced_{idx}")
+                ced_est = st.text_input(f"Cédula de Ciudadanía #{idx}:", placeholder="Ej: 0101234567", key=f"ced_{idx}")
 
-            payload_indiv = {
-                "autor": nom_final.strip().upper(),
-                "cedula": ced_final.strip(),
-                "facultad": facultad_edit.strip(),
-                "carrera": carrera_edit.strip(),
-                "handle": data["handle"],
-                "nivel": nivel_sel,
+            payload = {
+                "autor": nom_est.strip().upper(),
+                "cedula": ced_est.strip(),
+                "facultad": facultad_final.strip(),
+                "carrera": carrera_final.strip(),
+                "tipo_estudio": tipo_estudio,
+                "handle": meta["handle"],
                 "ref_nombre": ref_info["nombre"],
                 "ref_cargo": ref_info["cargo"]
             }
-            datos_autores_para_descarga.append(payload_indiv)
+            certificados_generados.append(payload)
 
-            if ced_final.strip():
-                buf = crear_documento_word(payload_indiv)
+            if ced_est.strip():
+                buf = crear_documento_word(payload)
                 st.download_button(
-                    label=f"📄 Descargar Certificado de {nom_final.split()[0]}",
+                    label=f"📥 Descargar Certificado Word (.docx) - Estudiante {idx}",
                     data=buf,
-                    file_name=f"Certificado_{ced_final.strip()}_{nom_final.replace(' ', '_')}.docx",
+                    file_name=f"Certificado_{ced_est.strip()}_{nom_est.replace(' ', '_')}.docx",
                     mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    key=f"dl_indiv_{idx}"
+                    key=f"btn_dl_{idx}"
                 )
             else:
-                st.info("💡 Ingrese el número de cédula para habilitar la descarga individual.")
+                st.info("💡 Ingrese el número de cédula para activar el botón de descarga.")
 
-    # SI HAY MÚLTIPLES AUTORES: Descarga en lote .ZIP
-    if len(datos_autores_para_descarga) > 1:
+    # Opción para descargar todos en un solo ZIP si hay varios autores
+    if len(certificados_generados) > 1:
         st.markdown("---")
-        st.markdown("### 4. Descarga Conjunta")
-        
-        # Verificar que todos tengan cédula
-        cedulas_completas = all(a["cedula"] for a in datos_autores_para_descarga)
-        
-        if cedulas_completas:
+        if all(c["cedula"] for c in certificados_generados):
             zip_buffer = io.BytesIO()
             with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-                for a_data in datos_autores_para_descarga:
-                    doc_buf = crear_documento_word(a_data)
-                    file_name = f"Certificado_{a_data['cedula']}_{a_data['autor'].replace(' ', '_')}.docx"
-                    zf.writestr(file_name, doc_buf.getvalue())
+                for c_data in certificados_generados:
+                    doc_buf = crear_documento_word(c_data)
+                    zf.writestr(f"Certificado_{c_data['cedula']}_{c_data['autor'].replace(' ', '_')}.docx", doc_buf.getvalue())
             
             zip_buffer.seek(0)
             st.download_button(
-                label=f"📦 Descargar TODOS los Certificados ({len(datos_autores_para_descarga)} archivos en .ZIP)",
+                label=f"📦 Descargar TODOS los Certificados ({len(certificados_generados)} archivos .ZIP)",
                 data=zip_buffer,
                 file_name="Certificados_No_Adeudar_UCuenca.zip",
                 mime="application/zip",
                 type="primary"
             )
         else:
-            st.warning("⚠️ Para generar el paquete .ZIP con todos los certificados, asegúrese de ingresar las cédulas de todos los autores.")
+            st.warning("⚠️ Complete las cédulas de todos los estudiantes para descargar el paquete .ZIP conjunto.")
