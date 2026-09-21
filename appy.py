@@ -32,7 +32,13 @@ CSS_UCUENCA = """
         font-family: 'Arial', sans-serif;
         background-color: #f4f6f9;
     }
-    
+    .uc-header {
+    text-align: center; /* <-- Añadir esta línea */
+    background: linear-gradient(90deg, #0F2B5B 0%, #163B7A 100%);
+    color: white;
+    padding: 20px 30px;
+    ...
+}
     /* Header Institucional */
     .uc-header {
         background: linear-gradient(90deg, #0F2B5B 0%, #163B7A 100%);
@@ -57,15 +63,15 @@ CSS_UCUENCA = """
         margin-bottom: 0 !important;
     }
 
-    /* Botones Principales */
-    .stButton>button {
-        background-color: #0F2B5B !important;
-        color: white !important;
-        border-radius: 6px !important;
-        font-weight: bold !important;
-        border: none !important;
-        padding: 10px 20px !important;
-        transition: all 0.3s ease !important;
+    st.markdown(
+    """
+    <div class="uc-header">
+        <h1>UNIVERSIDAD DE CUENCA</h1>
+        <p>Centro de Documentación Regional “Juan Bautista Vázquez” (CDR-JBV) &bull; Certificación Institucional de No Adeudar</p>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
     }
     .stButton>button:hover {
         background-color: #9E1B32 !important;
