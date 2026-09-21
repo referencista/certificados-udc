@@ -73,19 +73,17 @@ def normalizar_texto(texto):
 def extraer_metadatos_dspace(url_input):
     url_clean = url_input.strip()
 
-    # 1. Extraer Handle (ej: 123456789/49197) o UUID (ej: 2de2ea74-...)
-    match_handle = re.search(r"(\d+/\d+)", url_clean)
-    match_uuid = re.search(
-        r"([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})",
-        url_clean,
-        re.I,
-    )
+    # Detectar Handle (ej: 123456789/48627) o UUID (ej: ad19c5fb-5289-4881-89fa-8a1e831345c6)
+    match_handle = re.search(r'(\d+/\d+)', url_clean)
+    match_uuid = re.search(r'([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})', url_clean, re.I)
 
-    # Subdominios de la API REST de DSpace 7 en UCuenca
     base_apis = [
         "https://rest-dspace.ucuenca.edu.ec/server/api",
-        "https://dspace.ucuenca.edu.ec/server/api",
+        "https://dspace.ucuenca.edu.ec/server/api"
     ]
+
+    endpoint = None
+    handle_official = url_clean
 
     if match_handle:
         handle_id = match_handle.group(1)
@@ -94,268 +92,83 @@ def extraer_metadatos_dspace(url_input):
     elif match_uuid:
         uuid_id = match_uuid.group(1)
         endpoint = f"/core/items/{uuid_id}"
-        handle_official = url_clean
-    else:
-        return {
-            "autores": ["APELLIDOS NOMBRES ESTUDIANTE"],
-            "facultad": "Facultad de Ciencias Agropecuarias",
-            "carrera": "Ingeniería Agronómica",
-            "handle": url_clean,
-        }
 
-    headers = {
-        "Accept": "application/json",
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
-        ),
-    }
-
+    headers = {'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0'}
     data = None
-    # Probamos las rutas API
-    for base in base_apis:
-        try:
-            resp = requests.get(
-                base + endpoint, headers=headers, timeout=10, verify=False
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                break
-        except Exception:
-            continue
+    
+    if endpoint:
+        for base in base_apis:
+            try:
+                resp = requests.get(base + endpoint, headers=headers, timeout=10, verify=False)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    break
+            except Exception:
+                continue
 
-    # Si la API no responde, devolvemos plantilla por defecto editable en Streamlit
+    # Si la API no responde
     if not data:
         return {
-            "autores": ["APELLIDOS NOMBRES ESTUDIANTE"],
-            "facultad": "Facultad de Ciencias Agropecuarias",
-            "carrera": "Ingeniería Agronómica",
-            "handle": handle_official,
+            "autores": ["APELLIDOS, NOMBRES ESTUDIANTE"],
+            "facultad": "",
+            "carrera": "",
+            "handle": handle_official
         }
 
     metadata = data.get("metadata", {})
 
-    def get_meta_value(key, default=""):
-        items = metadata.get(key, [])
-        if items and len(items) > 0:
-            return items[0].get("value", default)
+    def get_meta_value(keys_list, default=""):
+        """Busca el valor probando múltiples claves posibles en DSpace 7."""
+        if isinstance(keys_list, str):
+            keys_list = [keys_list]
+        for key in keys_list:
+            items = metadata.get(key, [])
+            if items and len(items) > 0:
+                val = items[0].get("value", "").strip()
+                if val:
+                    return val
         return default
 
-    # Extraer y formatear autores (APELLIDOS, NOMBRES -> NOMBRES APELLIDOS)
-    raw_authors = [
-        a.get("value")
-        for a in metadata.get("dc.contributor.author", [])
-        if a.get("value")
-    ]
+    # 1. EXTRAER AUTORES EN MAYÚSCULAS CONSERVANDO LAS COMAS Y EL ORDEN ORIGINAL (APELLIDOS, NOMBRES)
+    raw_authors = [a.get("value") for a in metadata.get("dc.contributor.author", []) if a.get("value")]
     autores_formateados = []
     for a in raw_authors:
-        a_clean = re.sub(r"\s+", " ", a).strip()
-        if "," in a_clean:
-            parts = a_clean.split(",", 1)
-            nombre = f"{parts[1].strip()} {parts[0].strip()}".upper()
-        else:
-            nombre = a_clean.upper()
-        if nombre not in autores_formateados:
-            autores_formateados.append(nombre)
+        # Limpia espacios extra, conserva la coma y convierte a MAYÚSCULAS
+        a_clean = re.sub(r'\s+', ' ', a).strip().upper()
+        if a_clean and a_clean not in autores_formateados:
+            autores_formateados.append(a_clean)
 
-    facultad = get_meta_value(
+    # 2. EXTRAER FACULTAD Y CARRERA REVISANDO MÚLTIPLES ETIQUETAS POSIBLES
+    facultad = get_meta_value([
         "thesis.degree.grantor",
-        get_meta_value("dc.publisher", "Facultad de Ciencias Agropecuarias"),
-    )
-    carrera = get_meta_value(
-        "thesis.degree.discipline", "Ingeniería Agronómica"
-    )
+        "dc.publisher",
+        "dc.department",
+        "dc.contributor.department"
+    ], default="")
+
+    carrera = get_meta_value([
+        "thesis.degree.discipline",
+        "thesis.degree.name",
+        "dc.degree.discipline",
+        "dc.subject"
+    ], default="")
+
+    # 3. EXTRAER EL HANDLE OFICIAL SI LA ENTRADA FUE UN UUID
+    uri_items = metadata.get("dc.identifier.uri", [])
+    for uri in uri_items:
+        val_uri = uri.get("value", "")
+        if "handle/" in val_uri:
+            match_h = re.search(r'(\d+/\d+)', val_uri)
+            if match_h:
+                handle_official = f"https://dspace.ucuenca.edu.ec/handle/{match_h.group(1)}"
+                break
 
     return {
-        "autores": autores_formateados
-        if autores_formateados
-        else ["APELLIDOS NOMBRES ESTUDIANTE"],
+        "autores": autores_formateados if autores_formateados else ["APELLIDOS, NOMBRES ESTUDIANTE"],
         "facultad": facultad,
         "carrera": carrera,
-        "handle": handle_official,
+        "handle": handle_official
     }
-
-# ------------------------------------------------------------------
-# GENERADOR DEL DOCUMENTO WORD (.DOCX)
-# ------------------------------------------------------------------
-def crear_documento_word(datos):
-    doc = docx.Document()
-
-    for section in doc.sections:
-        section.top_margin = Inches(0.9)
-        section.bottom_margin = Inches(0.9)
-        section.left_margin = Inches(1.0)
-        section.right_margin = Inches(1.0)
-
-    # ENCABEZADO CON LOGO
-    table_header = doc.add_table(rows=1, cols=2)
-    table_header.alignment = WD_TABLE_ALIGNMENT.CENTER
-    table_header.autofit = False
-
-    cell_left = table_header.rows[0].cells[0]
-    cell_right = table_header.rows[0].cells[1]
-    
-    cell_left.width = Inches(2.1)
-    cell_right.width = Inches(4.4)
-    
-    cell_left.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-    cell_right.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-
-    p_logo = cell_left.paragraphs[0]
-    p_logo.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    p_logo.paragraph_format.space_before = Pt(0)
-    p_logo.paragraph_format.space_after = Pt(0)
-    
-    run_logo = p_logo.add_run("UCUENCA")
-    run_logo.font.name = 'Arial'
-    run_logo.font.size = Pt(22)
-    run_logo.font.bold = True
-    run_logo.font.color.rgb = RGBColor(15, 43, 91)
-
-    p_hdr = cell_right.paragraphs[0]
-    p_hdr.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    p_hdr.paragraph_format.line_spacing = 1.0
-    p_hdr.paragraph_format.space_before = Pt(0)
-    p_hdr.paragraph_format.space_after = Pt(0)
-
-    r1 = p_hdr.add_run("FORMATO DE NO ADEUDAR MATERIAL BIBLIOGRÁFICO A LA\n")
-    r1.font.bold = True
-    r1.font.size = Pt(8.5)
-    r1.font.name = 'Arial'
-
-    r2 = p_hdr.add_run("BIBLIOTECA\n")
-    r2.font.bold = True
-    r2.font.size = Pt(8.5)
-    r2.font.name = 'Arial'
-
-    r3 = p_hdr.add_run("UC-CDRJVB-FOR-020\n")
-    r3.font.bold = True
-    r3.font.size = Pt(8.5)
-    r3.font.name = 'Arial'
-
-    r4 = p_hdr.add_run("Página 1 de 1")
-    r4.font.bold = False
-    r4.font.size = Pt(8.5)
-    r4.font.name = 'Arial'
-
-    doc.add_paragraph()
-
-    # TÍTULO
-    p_titulo = doc.add_paragraph()
-    p_titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p_titulo.paragraph_format.space_before = Pt(24)
-    p_titulo.paragraph_format.space_after = Pt(24)
-    run_titulo = p_titulo.add_run("CERTIFICADO DE NO ADEUDAR")
-    run_titulo.font.name = 'Arial'
-    run_titulo.font.size = Pt(13)
-    run_titulo.font.bold = True
-
-    # CUERPO DEL TEXTO
-    p_cuerpo = doc.add_paragraph()
-    p_cuerpo.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-    p_cuerpo.paragraph_format.line_spacing = 1.15
-    p_cuerpo.paragraph_format.space_after = Pt(24)
-
-    tipo = datos.get("tipo_estudio", "Pregrado")
-    if tipo == "Maestría":
-        prefix_carrera = "del Programa de Maestría en"
-    elif tipo == "Doctorado":
-        prefix_carrera = "del Programa de Doctorado en"
-    else:  # Pregrado o Complexivo
-        prefix_carrera = "de la Carrera de"
-
-    p_cuerpo.add_run('El Centro de Documentación Regional "Juan Bautista Vázquez" certifica que ').font.name = 'Arial'
-    p_cuerpo.runs[0].font.size = Pt(11)
-
-    r_nombre = p_cuerpo.add_run(f'{datos["autor"]}')
-    r_nombre.font.name = 'Arial'
-    r_nombre.font.size = Pt(11)
-    r_nombre.font.bold = True
-
-    r = p_cuerpo.add_run(', portador de la cédula de ciudadanía No. ')
-    r.font.name = 'Arial'
-    r.font.size = Pt(11)
-
-    r_cedula = p_cuerpo.add_run(f'{datos["cedula"]}')
-    r_cedula.font.name = 'Arial'
-    r_cedula.font.size = Pt(11)
-    r_cedula.font.bold = True
-
-    r_text = f', estudiante de la {datos["facultad"]} {prefix_carrera} {datos["carrera"]}, no adeuda ningún bien, ni material bibliográfico en esta dependencia.'
-    r = p_cuerpo.add_run(r_text)
-    r.font.name = 'Arial'
-    r.font.size = Pt(11)
-
-    # FECHA
-    p_fecha = doc.add_paragraph()
-    p_fecha.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    p_fecha.paragraph_format.space_after = Pt(28)
-    hoy = datetime.now()
-    fecha_texto = f"Cuenca, {hoy.day} de {MESES[hoy.month - 1]} de {hoy.year}"
-    r_fecha = p_fecha.add_run(fecha_texto)
-    r_fecha.font.name = 'Arial'
-    r_fecha.font.size = Pt(11)
-
-    # FIRMA
-    p_atentamente = doc.add_paragraph()
-    p_atentamente.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p_atentamente.paragraph_format.space_after = Pt(40)
-    p_atentamente.add_run("Atentamente,").font.name = 'Arial'
-
-    p_linea = doc.add_paragraph()
-    p_linea.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p_linea.paragraph_format.space_after = Pt(4)
-    p_linea.add_run("________________________________________").font.name = 'Arial'
-
-    p_firma = doc.add_paragraph()
-    p_firma.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p_firma.paragraph_format.line_spacing = 1.1
-
-    r_nom = p_firma.add_run(f'{datos["ref_nombre"]}\n')
-    r_nom.font.name = 'Arial'
-    r_nom.font.size = Pt(11)
-    r_nom.font.bold = True
-
-    r_cargo = p_firma.add_run(f'{datos["ref_cargo"]}\n')
-    r_cargo.font.name = 'Arial'
-    r_cargo.font.size = Pt(10)
-
-    r_cdr = p_firma.add_run('CDR "Juan Bautista Vázquez"')
-    r_cdr.font.name = 'Arial'
-    r_cdr.font.size = Pt(10)
-
-    for _ in range(3):
-        doc.add_paragraph()
-
-    # PIE DE PÁGINA
-    p_link = doc.add_paragraph()
-    p_link.alignment = WD_ALIGN_PARAGRAPH.LEFT
-    p_link.paragraph_format.space_before = Pt(0)
-    p_link.paragraph_format.space_after = Pt(14)
-
-    r_lbl = p_link.add_run("Link: ")
-    r_lbl.font.name = 'Arial'
-    r_lbl.font.size = Pt(10)
-    r_lbl.font.bold = True
-
-    r_handle = p_link.add_run(datos["handle"])
-    r_handle.font.name = 'Arial'
-    r_handle.font.size = Pt(10)
-    r_handle.font.underline = True
-    r_handle.font.color.rgb = RGBColor(0, 51, 153)
-
-    p_ver = doc.add_paragraph()
-    p_ver.alignment = WD_ALIGN_PARAGRAPH.RIGHT
-    p_ver.paragraph_format.space_before = Pt(0)
-    p_ver.paragraph_format.space_after = Pt(0)
-
-    r_ver = p_ver.add_run("Version: 2.0")
-    r_ver.font.name = 'Arial'
-    r_ver.font.size = Pt(9.5)
-
-    buffer = io.BytesIO()
-    doc.save(buffer)
-    buffer.seek(0)
-    return buffer
 
 # ------------------------------------------------------------------
 # INTERFAZ PRINCIPAL STREAMLIT
