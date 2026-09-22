@@ -5,3 +5,4 @@ beautifulsoup4
 pandas
 openpyxl
 urllib3
+st-gsheets-connection
