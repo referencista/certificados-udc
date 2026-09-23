@@ -1,17 +1,29 @@
 import io
+import os
 import re
 import datetime
 import requests
 import pandas as pd
 import streamlit as st
-import gspread
-from google.oauth2.service_account import Credentials
-from docx import Document
-from docx.shared import Inches, Pt, RGBColor
-from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+# Intentar importar librerías opcionales/externas
+try:
+    import gspread
+    from google.oauth2.service_account import Credentials
+    HAS_GSHEETS = True
+except ImportError:
+    HAS_GSHEETS = False
+
+try:
+    from docx import Document
+    from docx.shared import Inches, Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    HAS_DOCX = True
+except ImportError:
+    HAS_DOCX = False
 
 # ==========================================
-# CONFIGURACIÓN DE LA PÁGINA
+# CONFIGURACIÓN DE PÁGINA Y ESTILOS (COLORS UCUENCA)
 # ==========================================
 st.set_page_config(
     page_title="Gestión de Certificados UCuenca",
@@ -19,9 +31,66 @@ st.set_page_config(
     layout="wide"
 )
 
-# ==========================================
-# CONSTANTES Y CONFIGURACIÓN
-# ==========================================
+# Inyección de CSS para personalizar los colores de la interfaz
+st.markdown("""
+    <style>
+    /* Color de fondo general de la app */
+    .stApp {
+        background-color: #F8F9FA;
+    }
+    
+    /* Encabezados principales con Azul Institucional UCuenca */
+    h1, h2, h3 {
+        color: #002060 !important;
+        font-weight: 700 !important;
+    }
+    
+    /* Estilo de los Botones Principales */
+    div.stButton > button {
+        background-color: #002060 !important;
+        color: #FFFFFF !important;
+        border-radius: 8px !important;
+        border: none !important;
+        padding: 0.5rem 1rem !important;
+        font-weight: 600 !important;
+        transition: all 0.3s ease !important;
+    }
+    
+    div.stButton > button:hover {
+        background-color: #001030 !important;
+        box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.15) !important;
+    }
+
+    /* Estilo para las Pestañas (Tabs) */
+    button[data-baseweb="tab"] {
+        font-size: 16px !important;
+        font-weight: 600 !important;
+        color: #002060 !important;
+    }
+    
+    /* Estilos para las tarjetas de KPIs */
+    [data-testid="stMetricValue"] {
+        font-size: 30px !important;
+        color: #002060 !important;
+        font-weight: bold !important;
+    }
+
+    [data-testid="stMetricLabel"] {
+        font-size: 14px !important;
+        color: #555555 !important;
+        font-weight: 600 !important;
+    }
+
+    div[data-testid="metric-container"] {
+        background-color: #FFFFFF !important;
+        padding: 18px !important;
+        border-radius: 10px !important;
+        border-left: 5px solid #002060 !important;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.06) !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 COLUMNAS_GSHEETS = ["Fecha y Hora", "Referencista", "Estudiante", "Facultad", "Carrera", "Handle"]
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -29,70 +98,66 @@ SCOPES = [
 ]
 
 # ==========================================
-# CONEXIÓN Y OPERACIONES CON GOOGLE SHEETS
+# CONEXIÓN SECURIZADA A GOOGLE SHEETS
 # ==========================================
 @st.cache_resource
 def conectar_google_sheets():
-    """Establece conexión con Google Sheets mediante secretos de Streamlit o archivo local."""
+    if not HAS_GSHEETS:
+        return None
     try:
+        # 1. Intentar por secrets de Streamlit
         if "gcp_service_account" in st.secrets:
             creds = Credentials.from_service_account_info(
                 st.secrets["gcp_service_account"],
                 scopes=SCOPES
             )
-        else:
-            creds = Credentials.from_service_account_file(
-                "credentials.json",
-                scopes=SCOPES
-            )
-        client = gspread.authorize(creds)
-        sheet_name = st.secrets.get("GSHEET_NAME", "Certificados_UCuenca")
-        sheet = client.open(sheet_name).sheet1
-        return sheet
-    except Exception as e:
-        st.error(f"Error de conexión con Google Sheets: {e}")
-        return None
+            client = gspread.authorize(creds)
+            sheet_name = st.secrets.get("GSHEET_NAME", "Certificados_UCuenca")
+            return client.open(sheet_name).sheet1
+
+        # 2. Intentar por archivo local solo si existe físicamente
+        elif os.path.exists("credentials.json"):
+            creds = Credentials.from_service_account_file("credentials.json", scopes=SCOPES)
+            client = gspread.authorize(creds)
+            sheet_name = st.secrets.get("GSHEET_NAME", "Certificados_UCuenca")
+            return client.open(sheet_name).sheet1
+
+    except Exception:
+        pass
+    return None
 
 def guardar_en_google_sheets(sheet, datos_dict):
-    """Guarda una nueva fila respetando el orden de columnas estándar."""
     if sheet is None:
         return False
     try:
-        # Si la hoja está totalmente vacía, insertar encabezados
         registros_existentes = sheet.get_all_values()
         if len(registros_existentes) == 0:
             sheet.append_row(COLUMNAS_GSHEETS)
         
-        # Crear la fila ordenando los datos según las columnas definidas
         fila = [datos_dict.get(col, "") for col in COLUMNAS_GSHEETS]
         sheet.append_row(fila)
         return True
     except Exception as e:
-        st.error(f"Error al guardar el registro en Google Sheets: {e}")
+        st.error(f"Error al guardar registro: {e}")
         return False
 
 def cargar_datos_reporte(sheet):
-    """Carga los registros almacenados y devuelve un DataFrame estructurado."""
     if sheet is None:
         return pd.DataFrame(columns=COLUMNAS_GSHEETS)
     try:
         data = sheet.get_all_records()
         df = pd.DataFrame(data)
-        
-        # Garantizar que todas las columnas esperadas estén presentes
         for col in COLUMNAS_GSHEETS:
             if col not in df.columns:
                 df[col] = ""
         return df
-    except Exception as e:
-        st.warning(f"No se pudieron cargar datos previos o la hoja está vacía: {e}")
+    except Exception:
         return pd.DataFrame(columns=COLUMNAS_GSHEETS)
 
 # ==========================================
-# CONSULTA DE METADATOS A DSPACE
+# CONSULTA A DSPACE
 # ==========================================
 def consultar_dspace(url_or_handle):
-    """Extrae metadatos básicos de DSpace desde una URL o Handle."""
     match = re.search(r'handle/(\d+/\d+)', url_or_handle)
     handle_id = match.group(1) if match else url_or_handle.strip()
 
@@ -111,44 +176,41 @@ def consultar_dspace(url_or_handle):
         
         if response.status_code == 200:
             html = response.text
-            
-            # Autores
             autores = re.findall(r'<meta name="DC.creator" content="([^"]+)"', html)
             if not autores:
                 autores = re.findall(r'<meta name="citation_author" content="([^"]+)"', html)
             if autores:
                 datos["Estudiante"] = ", ".join(autores)
                 
-            # Título
             titulos = re.findall(r'<meta name="DC.title" content="([^"]+)"', html)
             if titulos:
                 datos["Titulo"] = titulos[0]
 
-            # Facultad / Editorial
             facultades = re.findall(r'<meta name="DC.publisher" content="([^"]+)"', html)
             if facultades:
                 datos["Facultad"] = facultades[0]
 
     except Exception as e:
-        st.warning(f"No se pudieron extraer automáticamente los metadatos ({e}). Ingrese los datos manualmente.")
+        st.warning(f"No se pudieron extraer metadatos automáticamente ({e}). Completa los campos a mano.")
 
     return datos
 
 # ==========================================
-# GENERADOR DE DOCUMENTOS WORD (.DOCX)
+# GENERADOR WORD
 # ==========================================
 def generar_word_doc(estudiante, facultad, carrera, referencista, handle):
-    """Crea un documento Word formateado y lo entrega como buffer en memoria."""
+    if not HAS_DOCX:
+        st.error("La librería python-docx no está instalada.")
+        return None
+
     doc = Document()
 
-    # Márgenes de página
     for section in doc.sections:
         section.top_margin = Inches(1)
         section.bottom_margin = Inches(1)
         section.left_margin = Inches(1)
         section.right_margin = Inches(1)
 
-    # Encabezado principal
     p_title = doc.add_paragraph()
     p_title.alignment = WD_ALIGN_PARAGRAPH.CENTER
     run_title = p_title.add_run("UNIVERSIDAD DE CUENCA\nCENTRO DE INFORMACIÓN Y DOCUMENTACIÓN")
@@ -166,7 +228,6 @@ def generar_word_doc(estudiante, facultad, carrera, referencista, handle):
 
     doc.add_paragraph().paragraph_format.space_after = Pt(24)
 
-    # Cuerpo del certificado
     fecha_actual = datetime.datetime.now().strftime("%d de %B de %Y")
     
     p_body = doc.add_paragraph()
@@ -185,7 +246,6 @@ def generar_word_doc(estudiante, facultad, carrera, referencista, handle):
 
     doc.add_paragraph().paragraph_format.space_after = Pt(36)
 
-    # Fecha y Firma
     p_fecha = doc.add_paragraph()
     p_fecha.add_run(f"Cuenca, {fecha_actual}")
 
@@ -196,38 +256,28 @@ def generar_word_doc(estudiante, facultad, carrera, referencista, handle):
     p_firma.add_run(f"___________________________________\n{referencista}\n").bold = True
     p_firma.add_run("Referencista / Centro de Información y Documentación\nUniversidad de Cuenca")
 
-    # Guardar en buffer en memoria
     buffer = io.BytesIO()
     doc.save(buffer)
     buffer.seek(0)
     return buffer
 
-# ==========================================
-# CALLBACK DE LIMPIEZA DE ESTADO
-# ==========================================
 def resetear_estado_busqueda():
-    """Limpia el estado de la sesión si el usuario altera el valor de entrada."""
     st.session_state.pop("datos_cargados", None)
 
 # ==========================================
-# APLICACIÓN PRINCIPAL (STREAMLIT)
+# APP PRINCIPAL
 # ==========================================
 def main():
     st.title("🎓 Sistema de Gestión de Certificados - UCuenca")
 
-    # Inicializar cliente de Google Sheets
     sheet = conectar_google_sheets()
 
     tab1, tab2 = st.tabs(["📄 Generar Certificado", "📊 Dashboard y Reportes"])
 
-    # -------------------------------------------------------------------------
-    # PESTAÑA 1: GENERADOR DE CERTIFICADOS
-    # -------------------------------------------------------------------------
     with tab1:
         st.header("📄 Generador de Certificados DSpace")
-        st.markdown("Ingrese la URL o Handle para obtener automáticamente los metadatos desde DSpace.")
+        st.caption("Ingrese la URL o Handle para obtener los metadatos institucionales.")
 
-        # Campo de texto con callback de reseteo al cambiar la URL
         url_dspace = st.text_input(
             "URL o Handle de DSpace:",
             key="input_url",
@@ -235,7 +285,7 @@ def main():
             on_change=resetear_estado_busqueda
         )
 
-        btn_procesar = st.button("🔍 Consultar DSpace", type="primary")
+        btn_procesar = st.button("🔍 Consultar DSpace")
 
         if btn_procesar:
             if not url_dspace.strip():
@@ -246,7 +296,6 @@ def main():
                     st.session_state["datos_cargados"] = datos
                     st.success("Metadatos procesados correctamente.")
 
-        # Desplegar formulario si hay datos cargados
         if "datos_cargados" in st.session_state:
             datos = st.session_state["datos_cargados"]
             
@@ -272,34 +321,31 @@ def main():
                 if not estudiante or not facultad or not carrera:
                     st.warning("Por favor complete todos los campos requeridos.")
                 else:
-                    with st.spinner("Generando documento Word y registrando datos..."):
-                        # 1. Generar archivo .docx
-                        docx_buffer = generar_word_doc(
-                            estudiante=estudiante,
-                            facultad=facultad,
-                            carrera=carrera,
-                            referencista=referencista,
-                            handle=handle_actual
-                        )
+                    docx_buffer = generar_word_doc(
+                        estudiante=estudiante,
+                        facultad=facultad,
+                        carrera=carrera,
+                        referencista=referencista,
+                        handle=handle_actual
+                    )
 
-                        # 2. Guardar en Google Sheets
-                        registro = {
-                            "Fecha y Hora": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
-                            "Referencista": referencista,
-                            "Estudiante": estudiante,
-                            "Facultad": facultad,
-                            "Carrera": carrera,
-                            "Handle": handle_actual
-                        }
-                        
-                        guardado_ok = guardar_en_google_sheets(sheet, registro)
+                    registro = {
+                        "Fecha y Hora": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "Referencista": referencista,
+                        "Estudiante": estudiante,
+                        "Facultad": facultad,
+                        "Carrera": carrera,
+                        "Handle": handle_actual
+                    }
+                    
+                    guardado_ok = guardar_en_google_sheets(sheet, registro)
 
-                        if guardado_ok:
-                            st.success("✅ Registro almacenado correctamente en Google Sheets.")
-                        else:
-                            st.warning("⚠️ No se pudo guardar en Google Sheets, pero el certificado está listo para descarga.")
+                    if guardado_ok:
+                        st.success("✅ Registro almacenado en Google Sheets.")
+                    else:
+                        st.info("ℹ️ Certificado generado exitosamente.")
 
-                        # 3. Descargar archivo
+                    if docx_buffer:
                         st.download_button(
                             label="📥 Descargar Certificado (.docx)",
                             data=docx_buffer,
@@ -307,25 +353,19 @@ def main():
                             mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                         )
 
-    # -------------------------------------------------------------------------
-    # PESTAÑA 2: DASHBOARD Y REPORTES
-    # -------------------------------------------------------------------------
     with tab2:
         st.header("📊 Dashboard de Certificados Emitidos")
 
-        # Cargar DataFrame
         df_registros = cargar_datos_reporte(sheet)
 
         if df_registros.empty:
-            st.info("No hay registros almacenados en Google Sheets actualmente.")
+            st.info("No hay registros almacenados actualmente en la base de datos.")
         else:
-            # Procesar columnas de fecha
             df_registros['Fecha_DT'] = pd.to_datetime(df_registros['Fecha y Hora'], errors='coerce')
             df_registros['Año'] = df_registros['Fecha_DT'].dt.year.fillna(0).astype(int)
             df_registros['Mes'] = df_registros['Fecha_DT'].dt.strftime('%B')
             df_registros['Fecha_Corta'] = df_registros['Fecha_DT'].dt.date
 
-            # --- FILTROS DINÁMICOS ---
             st.subheader("🔍 Filtros de Búsqueda")
             col_f1, col_f2, col_f3 = st.columns(3)
 
@@ -342,7 +382,6 @@ def main():
                 refs_disponibles = ["Todos"] + [r for r in df_registros['Referencista'].unique() if r]
                 ref_filtro = st.selectbox("Referencista:", refs_disponibles)
 
-            # --- FILTRADO DE DATAFRAME ---
             df_filtrado = df_registros.copy()
 
             if anio_sel != "Todos":
@@ -354,7 +393,6 @@ def main():
             if ref_filtro != "Todos":
                 df_filtrado = df_filtrado[df_filtrado['Referencista'] == ref_filtro]
 
-            # --- CÁLCULO REAL DE KPIS ---
             tot_certificados = len(df_filtrado)
 
             if not df_filtrado.empty and 'Referencista' in df_filtrado.columns:
@@ -369,7 +407,6 @@ def main():
             else:
                 promedio_diario = 0
 
-            # --- TARJETAS DE KPIS ---
             st.markdown("---")
             kpi1, kpi2, kpi3 = st.columns(3)
             kpi1.metric("Total Certificados", tot_certificados)
@@ -378,7 +415,6 @@ def main():
 
             st.markdown("---")
 
-            # --- TABLA Y BOTÓN EXPORTAR ---
             st.subheader("📋 Registros Detallados")
             columnas_visibles = ["Fecha y Hora", "Referencista", "Estudiante", "Facultad", "Carrera", "Handle"]
             
@@ -388,7 +424,6 @@ def main():
                 hide_index=True
             )
 
-            # Exportar archivo CSV filtrado
             csv_data = df_filtrado[columnas_visibles].to_csv(index=False).encode('utf-8')
             st.download_button(
                 label="📥 Exportar Reporte Filtrado (CSV)",
