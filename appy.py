@@ -699,7 +699,7 @@ col1, col2, col3 = st.columns([3, 2, 2])
 
 with col1:
   url_input = st.text_input(
-      "URL o Handle de DSpace:",
+      "Handle de DSpace:",
       placeholder="Ej: https://dspace.ucuenca.edu.ec/handle/123456789/49197",
   )
 
