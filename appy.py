@@ -737,9 +737,11 @@ with col3:
 if btn_procesar or "datos_cargados" in st.session_state:
   if btn_procesar:
     if not url_input:
-      st.warning("⚠️ Por favor ingresa la URL o Handle de DSpace.")
+      st.warning("⚠️ Por favor ingresa el Handle de DSpace.")
       st.stop()
-
+    # Forzamos la limpieza de la consulta anterior antes de traer la nueva
+    st.session_state.pop("datos_cargados", None)
+      
     with st.spinner("Conectando con el repositorio DSpace de la UCuenca..."):
       meta = extraer_metadatos_dspace(url_input)
       st.session_state["datos_cargados"] = meta
