@@ -718,18 +718,18 @@ with col3:
 # Creamos dos columnas: una para el botón principal y otra para limpiar
   col_btn1, col_btn2 = st.columns([3, 1])
 
-    with col_btn1:
-        btn_procesar = st.button(
-            "🔍 Consultar DSpace y Generar Documento(s)", use_container_width=True
-        )
+with col_btn1:
+  btn_procesar = st.button(
+      "🔍 Consultar DSpace y Generar Documento(s)", use_container_width=True
+  )
 
-    with col_btn2:
-        btn_limpiar = st.button(
-            "🧹 Nueva Búsqueda", use_container_width=True
-        )
+with col_btn2:
+  btn_limpiar = st.button(
+      "🧹 Nueva Búsqueda", use_container_width=True
+  )
 
     # Si la persona presiona "Nueva Búsqueda", borramos la memoria y recargamos
-    if btn_limpiar:
+if btn_limpiar:
         st.session_state.pop("datos_cargados", None)
         st.rerun()
 )
