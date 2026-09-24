@@ -564,6 +564,7 @@ def crear_documento_word(datos):
   run_hdr.font.size = Pt(8.5)
 
   doc.add_paragraph()
+  doc.add_paragraph()
 
   # TÍTULO PRINCIPAL
   p_titulo = doc.add_paragraph()
@@ -571,7 +572,7 @@ def crear_documento_word(datos):
   p_titulo.paragraph_format.space_before = Pt(24)
   p_titulo.paragraph_format.space_after = Pt(24)
   
-    doc.add_paragraph()
+    
 
   r_tit = p_titulo.add_run("CERTIFICADO DE NO ADEUDAR")
   r_tit.font.name = "Arial"
