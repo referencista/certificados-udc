@@ -570,6 +570,8 @@ def crear_documento_word(datos):
   p_titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
   p_titulo.paragraph_format.space_before = Pt(24)
   p_titulo.paragraph_format.space_after = Pt(24)
+  
+    doc.add_paragraph()
 
   r_tit = p_titulo.add_run("CERTIFICADO DE NO ADEUDAR")
   r_tit.font.name = "Arial"
@@ -579,7 +581,7 @@ def crear_documento_word(datos):
   # CUERPO DEL CERTIFICADO (Se mantiene exacto a la redacción original)
   p_cuerpo = doc.add_paragraph()
   p_cuerpo.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
-  p_cuerpo.paragraph_format.line_spacing = 1.15
+  p_cuerpo.paragraph_format.line_spacing = 1.5
   p_cuerpo.paragraph_format.space_after = Pt(24)
 
   fac_clean = re.sub(
