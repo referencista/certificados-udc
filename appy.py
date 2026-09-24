@@ -716,7 +716,7 @@ with col3:
   referencista_sel = st.selectbox("Referencista que firma:", nombres_ref)
 
 # Creamos dos columnas: una para el botón principal y otra para limpiar
-    col_btn1, col_btn2 = st.columns([3, 1])
+  col_btn1, col_btn2 = st.columns([3, 1])
 
     with col_btn1:
         btn_procesar = st.button(
