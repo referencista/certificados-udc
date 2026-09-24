@@ -732,7 +732,6 @@ with col_btn2:
 if btn_limpiar:
         st.session_state.pop("datos_cargados", None)
         st.rerun()
-)
 
 if btn_procesar or "datos_cargados" in st.session_state:
   if btn_procesar:
