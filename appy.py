@@ -878,7 +878,6 @@ else:
         )
 
     else:
-        else:
         st.info("📂 Cargue el archivo Excel con el listado de Exámenes Complexivos para generar los certificados de los estudiantes autorizados.")
         
         archivo_excel = st.file_uploader(
