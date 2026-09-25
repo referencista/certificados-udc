@@ -703,127 +703,179 @@ def crear_documento_word(datos):
   buffer.seek(0)
   return buffer
 
-
 # ------------------------------------------------------------------
 # INTERFAZ PRINCIPAL EN STREAMLIT
 # ------------------------------------------------------------------
-st.markdown("#### 1. Parámetros de la Consulta DSpace")
 
-col1, col2, col3 = st.columns([3, 2, 2])
+# 1. Selector principal de Tipo de Titulación y Referencista
+col_tipo, col_ref = st.columns([2, 2])
 
-with col1:
-  url_input = st.text_input(
-      "Handle de DSpace:",
-      placeholder="Ej: https://dspace.ucuenca.edu.ec/handle/123456789/49197",
-  )
+with col_tipo:
+    tipo_estudio = st.selectbox(
+        "Tipo de Titulación / Proceso:",
+        ["Pregrado", "Maestría", "Doctorado", "Complexivo"]
+    )
 
-with col2:
-  tipo_estudio = st.selectbox(
-      "Tipo de Titulación:", ["Pregrado", "Maestría", "Doctorado", "Complexivo"]
-  )
+with col_ref:
+    nombres_ref = sorted([r["nombre"] for r in LISTA_REFERENCISTAS])
+    referencista_sel = st.selectbox("Referencista que firma:", nombres_ref)
 
-with col3:
-  nombres_ref = sorted([r["nombre"] for r in LISTA_REFERENCISTAS])
-  referencista_sel = st.selectbox("Referencista que firma:", nombres_ref)
+ref_info = next(
+    item for item in LISTA_REFERENCISTAS if item["nombre"] == referencista_sel
+)
 
-# Creamos dos columnas: una para el botón principal y otra para limpiar
-  col_btn1, col_btn2 = st.columns([3, 1])
+st.markdown("---")
 
-with col_btn1:
-  btn_procesar = st.button(
-      "🔍 Consultar DSpace y Generar Documento(s)", use_container_width=True
-  )
+# ------------------------------------------------------------------
+# CASO A: PREGRADO, MAESTRÍA O DOCTORADO (DSPACE)
+# ------------------------------------------------------------------
+if tipo_estudio != "Complexivo":
+    st.markdown("#### 1. Parámetros de la Consulta DSpace")
+    
+    url_input = st.text_input(
+        "Handle de DSpace:",
+        placeholder="Ej: https://dspace.ucuenca.edu.ec/handle/123456789/49197",
+    )
 
-with col_btn2:
-  btn_limpiar = st.button(
-      "🧹 Nueva Búsqueda", use_container_width=True
-  )
+    col_btn1, col_btn2 = st.columns([3, 1])
 
-    # Si la persona presiona "Nueva Búsqueda", borramos la memoria y recargamos
-if btn_limpiar:
+    with col_btn1:
+        btn_procesar = st.button(
+            "🔍 Consultar DSpace y Generar Documento(s)", use_container_width=True
+        )
+
+    with col_btn2:
+        btn_limpiar = st.button(
+            "🧹 Nueva Búsqueda", use_container_width=True
+        )
+
+    if btn_limpiar:
         st.session_state.pop("datos_cargados", None)
         st.rerun()
 
-if btn_procesar or "datos_cargados" in st.session_state:
-  if btn_procesar:
-    if not url_input:
-      st.warning("⚠️ Por favor ingresa el Handle de DSpace.")
-      st.stop()
-    # Forzamos la limpieza de la consulta anterior antes de traer la nueva
-    st.session_state.pop("datos_cargados", None)
-      
-    with st.spinner("Conectando con el repositorio DSpace de la UCuenca..."):
-      meta = extraer_metadatos_dspace(url_input)
-      st.session_state["datos_cargados"] = meta
+    if btn_procesar or "datos_cargados" in st.session_state:
+        if btn_procesar:
+            if not url_input:
+                st.warning("⚠️ Por favor ingresa el Handle de DSpace.")
+                st.stop()
+            st.session_state.pop("datos_cargados", None)
+            
+            with st.spinner("Conectando con el repositorio DSpace de la UCuenca..."):
+                meta = extraer_metadatos_dspace(url_input)
+                st.session_state["datos_cargados"] = meta
 
-  meta = st.session_state["datos_cargados"]
-  ref_info = next(
-      item for item in LISTA_REFERENCISTAS if item["nombre"] == referencista_sel
-  )
+        meta = st.session_state["datos_cargados"]
 
-  st.markdown("---")
-  st.markdown("#### 2. Validación de Metadatos Extramunicipales y Estudiantes")
+        st.markdown("---")
+        st.markdown("#### 2. Validación de Metadatos Extramunicipales y Estudiantes")
 
-  col_f, col_c = st.columns(2)
-  with col_f:
-    facultad_final = st.text_input("Facultad Detectada:", value=meta["facultad"])
-  with col_c:
-    carrera_final = st.text_input(
-        "Carrera / Programa Detectado:", value=meta["carrera"]
+        col_f, col_c = st.columns(2)
+        with col_f:
+            facultad_final = st.text_input("Facultad Detectada:", value=meta["facultad"])
+        with col_c:
+            carrera_final = st.text_input(
+                "Carrera / Programa Detectado:", value=meta["carrera"]
+            )
+
+        st.markdown(f"**Estudiantes / Autores encontrados ({len(meta['autores'])})**")
+
+        certificados_generados = []
+
+        for idx, autor_nombre in enumerate(meta["autores"], start=1):
+            with st.expander(
+                f"🎓 Estudiante #{idx}: {autor_nombre}", expanded=True
+            ):
+                nom_est = st.text_input(
+                    f"Nombre Estudiante #{idx}:", value=autor_nombre, key=f"nom_{idx}"
+                )
+
+                payload = {
+                    "autor": nom_est.strip().upper(),
+                    "facultad": facultad_final.strip(),
+                    "carrera": carrera_final.strip(),
+                    "tipo_estudio": tipo_estudio,
+                    "handle": meta["handle"],
+                    "ref_nombre": ref_info["nombre"],
+                    "ref_cargo": ref_info["cargo"],
+                }
+                certificados_generados.append(payload)
+
+                buf = crear_documento_word(payload)
+                st.download_button(
+                    label=f"📄 Descargar Certificado Word - Estudiante {idx}",
+                    data=buf,
+                    file_name=f"Certificado_{nom_est.replace(' ', '_')}.docx",
+                    mime=(
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    ),
+                    key=f"btn_dl_{idx}",
+                )
+
+        if len(certificados_generados) > 1:
+            st.markdown("---")
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                for c_data in certificados_generados:
+                    doc_buf = crear_documento_word(c_data)
+                    zf.writestr(
+                        f"Certificado_{c_data['autor'].replace(' ', '_')}.docx",
+                        doc_buf.getvalue(),
+                    )
+
+            zip_buffer.seek(0)
+            st.download_button(
+                label=(
+                    "📦 Descargar TODOS los Certificados en Un Archivo ZIP"
+                    f" ({len(certificados_generados)} archivos)"
+                ),
+                data=zip_buffer,
+                file_name="Certificados_No_Adeudar_UCuenca.zip",
+                mime="application/zip",
+            )
+
+# ------------------------------------------------------------------
+# CASO B: EXAMEN COMPLEXIVO
+# ------------------------------------------------------------------
+else:
+    st.markdown("#### 1. Parámetros de Examen Complexivo")
+    
+    modo_complexivo = st.radio(
+        "Seleccione la modalidad de generación:",
+        ["👤 Ingreso Manual (1 Estudiante)", "📂 Carga Masiva desde Excel (Listado)"],
+        horizontal=True
     )
 
-  st.markdown(f"**Estudiantes / Autores encontrados ({len(meta['autores'])})**")
-
-  certificados_generados = []
-
-  for idx, autor_nombre in enumerate(meta["autores"], start=1):
-    with st.expander(
-        f"🎓 Estudiante #{idx}: {autor_nombre}", expanded=True
-    ):
-      nom_est = st.text_input(
-          f"Nombre Estudiante #{idx}:", value=autor_nombre, key=f"nom_{idx}"
-      )
-
-      payload = {
-          "autor": nom_est.strip().upper(),
-          "facultad": facultad_final.strip(),
-          "carrera": carrera_final.strip(),
-          "tipo_estudio": tipo_estudio,
-          "handle": meta["handle"],
-          "ref_nombre": ref_info["nombre"],
-          "ref_cargo": ref_info["cargo"],
-      }
-      certificados_generados.append(payload)
-
-      buf = crear_documento_word(payload)
-      st.download_button(
-          label=f"📄 Descargar Certificado Word - Estudiante {idx}",
-          data=buf,
-          file_name=f"Certificado_{nom_est.replace(' ', '_')}.docx",
-          mime=(
-              "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          ),
-          key=f"btn_dl_{idx}",
-      )
-
-  if len(certificados_generados) > 1:
     st.markdown("---")
-    zip_buffer = io.BytesIO()
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-      for c_data in certificados_generados:
-        doc_buf = crear_documento_word(c_data)
-        zf.writestr(
-            f"Certificado_{c_data['autor'].replace(' ', '_')}.docx",
-            doc_buf.getvalue(),
+
+    if "Ingreso Manual" in modo_complexivo:
+        st.info("ℹ️ Ingrese los datos del estudiante de examen complexivo para generar su certificado individual.")
+        
+        col_m1, col_m2 = st.columns(2)
+        with col_m1:
+            nom_comp = st.text_input("Nombres y Apellidos Completos:", value="ZHIZHPON GUACHICHULLCA BYRON GEOVANNY")
+            carr_comp = st.text_input("Carrera o Programa:", value="PEDAGOGIA DE LAS ARTES Y LAS HUMANIDADES")
+        with col_m2:
+            fac_comp = st.text_input("Facultad:", value="FILOSOFIA, LETRAS Y CIENCIAS DE LA EDUCACION")
+
+        payload_manual = {
+            "autor": nom_comp.strip().upper(),
+            "facultad": fac_comp.strip(),
+            "carrera": carr_comp.strip(),
+            "tipo_estudio": "Complexivo",
+            "handle": "",
+            "ref_nombre": ref_info["nombre"],
+            "ref_cargo": ref_info["cargo"],
+        }
+
+        buf_manual = crear_documento_word(payload_manual)
+        
+        st.download_button(
+            label="📄 Descargar Certificado Word (.docx)",
+            data=buf_manual,
+            file_name=f"Certificado_Complexivo_{nom_comp.replace(' ', '_')}.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            key="btn_complexivo_manual"
         )
 
-    zip_buffer.seek(0)
-    st.download_button(
-        label=(
-            "📦 Descargar TODOS los Certificados en Un Archivo ZIP"
-            f" ({len(certificados_generados)} archivos)"
-        ),
-        data=zip_buffer,
-        file_name="Certificados_No_Adeudar_UCuenca.zip",
-        mime="application/zip",
-    )
+    else:
+        st.info("📂 Carga de Excel en preparación (Paso 3)...")
