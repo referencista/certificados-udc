@@ -887,7 +887,19 @@ else:
 
         if archivo_excel is not None:
             try:
-                df = pd.read_excel(archivo_excel)
+                # 1. Leemos primero el archivo de forma bruta (sin asumir encabezados)
+                df_raw = pd.read_excel(archivo_excel, header=None)
+                
+                # 2. Buscamos automáticamente la fila que contiene las palabras clave (Facultad, Apellidos, Nombres, etc.)
+                header_idx = 0
+                for idx, row in df_raw.iterrows():
+                    row_text = " ".join([str(cell).lower() for cell in row.values if pd.notna(cell)])
+                    if "facultad" in row_text or "apellidos" in row_text or "nombres" in row_text:
+                        header_idx = idx
+                        break
+
+                # 3. Leemos el archivo usando exactamente la fila del encabezado detectada
+                df = pd.read_excel(archivo_excel, header=header_idx)
                 
                 # Función interna para quitar tildes y minusculizar
                 def norm_col(texto):
@@ -907,7 +919,7 @@ else:
 
                 col_fac = encontrar_columna(['facultad'])
                 col_carr = encontrar_columna(['carrera o maestria', 'carrera', 'programa'])
-                col_ape = me_ape = encontrar_columna(['apellidos', 'apellido'])
+                col_ape = encontrar_columna(['apellidos', 'apellido'])
                 col_nom = encontrar_columna(['nombres', 'nombre'])
                 col_aut = encontrar_columna(['autorizacion', 'autoriz'])
 
@@ -921,18 +933,20 @@ else:
 
                 if faltantes:
                     st.error(f"❌ No se pudieron identificar las siguientes columnas: **{', '.join(faltantes)}**.")
-                    st.warning(f"📋 **Columnas detectadas en tu archivo Excel ({archivo_excel.name}):**\n`{list(df.columns)}`")
-                    st.info("💡 Sugerencia: Revisa los encabezados de la fila 1 en tu archivo Excel para que contengan estas palabras.")
+                    st.warning(f"📋 **Columnas detectadas en la fila {header_idx + 1} de tu Excel:**\n`{list(df.columns)}`")
                 else:
+                    # Limpiamos los datos quitando filas totalmente vacías
+                    df = df.dropna(how="all")
+
                     # Filtrar únicamente las filas donde Autorización sea 'AUTORIZADO'
                     df_filtrado = df[df[col_aut].astype(str).str.strip().str.upper() == 'AUTORIZADO'].copy()
 
                     cant_autorizados = len(df_filtrado)
 
                     if cant_autorizados == 0:
-                        st.warning(f"⚠️ Se leyó el archivo correctamente, pero no se encontraron filas con el valor 'AUTORIZADO' en la columna '{col_aut}'.")
+                        st.warning(f"⚠️ Se leyó el archivo correctamente (encabezado en fila {header_idx + 1}), pero no se encontraron filas con el valor 'AUTORIZADO' en la columna '{col_aut}'.")
                     else:
-                        st.success(f"✅ Se encontraron **{cant_autorizados}** estudiantes con estado **AUTORIZADO**.")
+                        st.success(f"✅ Se encontraron **{cant_autorizados}** estudiantes con estado **AUTORIZADO** (encabezado detectado en la fila {header_idx + 1}).")
 
                         # Muestra la tabla filtrada en pantalla
                         st.dataframe(
@@ -977,7 +991,3 @@ else:
 
             except Exception as e:
                 st.error(f"❌ Ocurrió un error al leer el archivo Excel: {str(e)}")
-        
-        
-  
- 
