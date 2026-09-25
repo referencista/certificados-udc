@@ -27,15 +27,6 @@ st.set_page_config(
 
 # Estilos CSS Personalizados estilo Universidad de Cuenca (Centrado)
 CSS_UCUENCA = """
-/* Personalizar texto de subida de archivos (st.file_uploader) */
-    div[data-testid="stFileUploaderDropzoneInstructions"] small {
-        font-size: 0px !important; /* Oculta el texto original en inglés */
-    }
-    div[data-testid="stFileUploaderDropzoneInstructions"] small::after {
-        content: "Máximo 200MB por archivo • Formato XLSX o XLS"; /* Tu texto personalizado */
-        font-size: 13px !important;
-        color: #666666 !important;
-    }
 <style>
     /* Estilo General */
     body {
@@ -111,22 +102,18 @@ CSS_UCUENCA = """
     div[data-baseweb="input"] {
         border-radius: 6px !important;
     }
+
+    /* Personalizar texto de subida de archivos (st.file_uploader) */
+    div[data-testid="stFileUploaderDropzoneInstructions"] small {
+        font-size: 0px !important; /* Oculta el texto original en inglés */
+    }
+    div[data-testid="stFileUploaderDropzoneInstructions"] small::after {
+        content: "Máximo 200MB por archivo • Formato XLSX o XLS"; /* Tu texto personalizado */
+        font-size: 13px !important;
+        color: #666666 !important;
+    }
 </style>
 """
-
-st.markdown(CSS_UCUENCA, unsafe_allow_html=True)
-
-# Banner de Encabezado Institucional Centrado con Nombre Oficial
-st.markdown(
-    """
-    <div class="uc-header">
-        <h1>UNIVERSIDAD DE CUENCA</h1>
-        <p>Centro de Documentación Regional “Juan Bautista Vázquez” (CDR-JBV) &bull; Certificado de No Adeudar</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
 # ------------------------------------------------------------------
 # LISTA OFICIAL DE REFERENCISTAS
 # ------------------------------------------------------------------
