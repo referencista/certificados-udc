@@ -8,6 +8,7 @@ import docx
 from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt, RGBColor
+import pandas as pd  # <-- lo necesitaremos para leer el archivo Excel en la modalidad Complexivo
 import requests
 import streamlit as st
 import urllib3
@@ -602,12 +603,6 @@ def crear_documento_word(datos):
   ).strip()
 
   tipo = datos.get("tipo_estudio", "Pregrado")
-  if tipo == "Maestría":
-    prefix_carrera = "del Programa de Maestría en"
-  elif tipo == "Doctorado":
-    prefix_carrera = "del Programa de Doctorado en"
-  else:
-    prefix_carrera = "de la Carrera de"
 
   r_c1 = p_cuerpo.add_run(
       'El Centro de Documentación Regional "Juan Bautista Vázquez" certifica'
@@ -626,10 +621,25 @@ def crear_documento_word(datos):
   r_ced.font.name = "Arial"
   r_ced.font.bold = True
 
-  r_c3 = p_cuerpo.add_run(
-      f", estudiante de la {fac_clean} {prefix_carrera} {carr_clean}, no adeuda"
-      " ningún bien, ni material bibliográfico en esta dependencia."
-  )
+  # Redacción según modalidad
+  if tipo == "Complexivo":
+      texto_cert = (
+          f", estudiante de la {fac_clean}, de la {carr_clean}, "
+          "modalidad Examen Complexivo, no adeuda ningún bien, ni material bibliográfico en esta dependencia."
+      )
+  else:
+      if tipo == "Maestría":
+          prefix_carrera = "del Programa de Maestría en"
+      elif tipo == "Doctorado":
+          prefix_carrera = "del Programa de Doctorado en"
+      else:
+          prefix_carrera = "de la Carrera de"
+      
+      texto_cert = ( 
+          f", estudiante de la {fac_clean} {prefix_carrera} {carr_clean}, "
+                "no adeuda ningún bien, ni material bibliográfico en esta dependencia."
+      )
+  r_c3 = p_cuerpo.add_run(texto_cert)
   r_c3.font.name = "Arial"
 
   # FECHA
@@ -668,11 +678,12 @@ def crear_documento_word(datos):
     doc.add_paragraph()
 
   p_link = doc.add_paragraph()
-  r_l1 = p_link.add_run("Link: ")
+  r_l1 = p_link.add_run("Link / Registro: " if tipo == "Complexivo" else "Link: ")
   r_l1.font.name = "Arial"
   r_l1.font.bold = True
 
-  r_h = p_link.add_run(datos["handle"])
+  valor_link = "Examen Complexivo / Registro Interno" if tipo == "Complexivo" else datos.get("handle", "")
+  r_h = p_link.add_run(valor_link)
   r_h.font.name = "Arial"
   r_h.font.underline = True
   r_h.font.color.rgb = RGBColor(0, 51, 153)
