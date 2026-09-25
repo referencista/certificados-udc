@@ -878,4 +878,85 @@ else:
         )
 
     else:
-        st.info("📂 Carga de Excel en preparación (Paso 3)...")
+        else:
+        st.info("📂 Cargue el archivo Excel con el listado de Exámenes Complexivos para generar los certificados de los estudiantes autorizados.")
+        
+        archivo_excel = st.file_uploader(
+            "Seleccione el archivo Excel (.xlsx, .xls):", 
+            type=["xlsx", "xls"]
+        )
+
+        if archivo_excel is not None:
+            try:
+                df = pd.read_excel(archivo_excel)
+                
+                # Mapeo flexible de columnas para evitar fallos por mayúsculas o espacios
+                col_map = {str(c).strip().lower(): c for c in df.columns}
+                
+                # Verificar columnas indispensables
+                requeridas = ['facultad', 'carrera o maestría', 'apellidos', 'nombres', 'autorización']
+                faltantes = [req for req in requeridas if req not in col_map]
+
+                if faltantes:
+                    st.error("❌ El archivo Excel no contiene todas las columnas requeridas.")
+                    st.warning("📌 Asegúrate de que el Excel contenga exactamente estas columnas: **Facultad**, **Carrera o Maestría**, **Apellidos**, **Nombres**, **Autorización**.")
+                else:
+                    col_fac = col_map['facultad']
+                    col_carr = col_map['carrera o maestría']
+                    col_ape = col_map['apellidos']
+                    col_nom = col_map['nombres']
+                    col_aut = col_map['autorización']
+
+                    # Filtrar únicamente las filas donde Autorización sea 'AUTORIZADO'
+                    df_filtrado = df[df[col_aut].astype(str).str.strip().str.upper() == 'AUTORIZADO'].copy()
+
+                    cant_autorizados = len(df_filtrado)
+
+                    if cant_autorizados == 0:
+                        st.warning("⚠️ Se leyó el archivo correctamente, pero no se encontraron registros con estado 'AUTORIZADO' en la columna Autorización.")
+                    else:
+                        st.success(f"✅ Se encontraron **{cant_autorizados}** estudiantes con estado **AUTORIZADO**.")
+
+                        # Muestra la tabla filtrada en pantalla
+                        st.dataframe(
+                            df_filtrado[[col_fac, col_carr, col_ape, col_nom, col_aut]],
+                            use_container_width=True
+                        )
+
+                        if st.button("⚡ Generar Todos los Certificados (.ZIP)", use_container_width=True):
+                            with st.spinner("Procesando certificados y empaquetando en archivo ZIP..."):
+                                zip_buffer = io.BytesIO()
+
+                                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                                    for _, row in df_filtrado.iterrows():
+                                        nombre_completo = f"{row[col_ape]} {row[col_nom]}".strip().upper()
+                                        facultad_val = str(row[col_fac]).strip()
+                                        carrera_val = str(row[col_carr]).strip()
+
+                                        payload_excel = {
+                                            "autor": nombre_completo,
+                                            "facultad": facultad_val,
+                                            "carrera": carrera_val,
+                                            "tipo_estudio": "Complexivo",
+                                            "handle": "",
+                                            "ref_nombre": ref_info["nombre"],
+                                            "ref_cargo": ref_info["cargo"],
+                                        }
+
+                                        doc_buf = crear_documento_word(payload_excel)
+                                        nombre_archivo = f"Certificado_{nombre_completo.replace(' ', '_')}.docx"
+                                        zf.writestr(nombre_archivo, doc_buf.getvalue())
+
+                                zip_buffer.seek(0)
+
+                                st.success(f"🎉 ¡{cant_autorizados} certificados generados correctamente!")
+                                st.download_button(
+                                    label=f"📦 Descargar ZIP con {cant_autorizados} Certificados (.zip)",
+                                    data=zip_buffer,
+                                    file_name="Certificados_Complexivos_Autorizados.zip",
+                                    mime="application/zip",
+                                    key="btn_zip_complexivos"
+                                )
+
+            except Exception as e:
+                st.error(f"❌ Ocurrió un error al leer el archivo Excel: {str(e)}")
