@@ -27,6 +27,15 @@ st.set_page_config(
 
 # Estilos CSS Personalizados estilo Universidad de Cuenca (Centrado)
 CSS_UCUENCA = """
+/* Personalizar texto de subida de archivos (st.file_uploader) */
+    div[data-testid="stFileUploaderDropzoneInstructions"] small {
+        font-size: 0px !important; /* Oculta el texto original en inglés */
+    }
+    div[data-testid="stFileUploaderDropzoneInstructions"] small::after {
+        content: "Máximo 200MB por archivo • Formato XLSX o XLS"; /* Tu texto personalizado */
+        font-size: 13px !important;
+        color: #666666 !important;
+    }
 <style>
     /* Estilo General */
     body {
