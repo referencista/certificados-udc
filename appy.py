@@ -889,30 +889,48 @@ else:
             try:
                 df = pd.read_excel(archivo_excel)
                 
-                # Mapeo flexible de columnas para evitar fallos por mayúsculas o espacios
-                col_map = {str(c).strip().lower(): c for c in df.columns}
-                
-                # Verificar columnas indispensables
-                requeridas = ['facultad', 'carrera o maestría', 'apellidos', 'nombres', 'autorización']
-                faltantes = [req for req in requeridas if req not in col_map]
+                # Función interna para quitar tildes y minusculizar
+                def norm_col(texto):
+                    txt = unicodedata.normalize("NFD", str(texto)).encode("ascii", "ignore").decode("utf-8")
+                    return txt.strip().lower()
+
+                # Mapa de columnas del Excel normalizadas
+                cols_dict = {norm_col(c): c for c in df.columns}
+
+                # Buscador flexible de columnas por palabras clave
+                def encontrar_columna(palabras_clave):
+                    for kw in palabras_clave:
+                        for norm_c, orig_c in cols_dict.items():
+                            if kw in norm_c:
+                                return orig_c
+                    return None
+
+                col_fac = encontrar_columna(['facultad'])
+                col_carr = encontrar_columna(['carrera o maestria', 'carrera', 'programa'])
+                col_ape = me_ape = encontrar_columna(['apellidos', 'apellido'])
+                col_nom = encontrar_columna(['nombres', 'nombre'])
+                col_aut = encontrar_columna(['autorizacion', 'autoriz'])
+
+                # Verificar si se encontraron las 5 columnas indispensables
+                faltantes = []
+                if not col_fac: faltantes.append("Facultad")
+                if not col_carr: faltantes.append("Carrera o Maestría")
+                if not col_ape: faltantes.append("Apellidos")
+                if not col_nom: faltantes.append("Nombres")
+                if not col_aut: faltantes.append("Autorización")
 
                 if faltantes:
-                    st.error("❌ El archivo Excel no contiene todas las columnas requeridas.")
-                    st.warning("📌 Asegúrate de que el Excel contenga exactamente estas columnas: **Facultad**, **Carrera o Maestría**, **Apellidos**, **Nombres**, **Autorización**.")
+                    st.error(f"❌ No se pudieron identificar las siguientes columnas: **{', '.join(faltantes)}**.")
+                    st.warning(f"📋 **Columnas detectadas en tu archivo Excel ({archivo_excel.name}):**\n`{list(df.columns)}`")
+                    st.info("💡 Sugerencia: Revisa los encabezados de la fila 1 en tu archivo Excel para que contengan estas palabras.")
                 else:
-                    col_fac = col_map['facultad']
-                    col_carr = col_map['carrera o maestría']
-                    col_ape = col_map['apellidos']
-                    col_nom = col_map['nombres']
-                    col_aut = col_map['autorización']
-
                     # Filtrar únicamente las filas donde Autorización sea 'AUTORIZADO'
                     df_filtrado = df[df[col_aut].astype(str).str.strip().str.upper() == 'AUTORIZADO'].copy()
 
                     cant_autorizados = len(df_filtrado)
 
                     if cant_autorizados == 0:
-                        st.warning("⚠️ Se leyó el archivo correctamente, pero no se encontraron registros con estado 'AUTORIZADO' en la columna Autorización.")
+                        st.warning(f"⚠️ Se leyó el archivo correctamente, pero no se encontraron filas con el valor 'AUTORIZADO' en la columna '{col_aut}'.")
                     else:
                         st.success(f"✅ Se encontraron **{cant_autorizados}** estudiantes con estado **AUTORIZADO**.")
 
@@ -959,3 +977,5 @@ else:
 
             except Exception as e:
                 st.error(f"❌ Ocurrió un error al leer el archivo Excel: {str(e)}")
+        
+        
