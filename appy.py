@@ -678,7 +678,7 @@ def crear_documento_word(datos):
     doc.add_paragraph()
 
   p_link = doc.add_paragraph()
-  r_l1 = p_link.add_run("Link / Registro: " if tipo == "Complexivo" else "Link: ")
+  r_l1 = p_link.add_run("Link: " if tipo == "Complexivo" else "Link: ")
   r_l1.font.name = "Arial"
   r_l1.font.bold = True
 
