@@ -682,7 +682,7 @@ def crear_documento_word(datos):
   r_l1.font.name = "Arial"
   r_l1.font.bold = True
 
-  valor_link = "Examen Complexivo / Registro Interno" if tipo == "Complexivo" else datos.get("handle", "")
+  valor_link = "Examen Complexivo" if tipo == "Complexivo" else datos.get("handle", "")
   r_h = p_link.add_run(valor_link)
   r_h.font.name = "Arial"
   r_h.font.underline = True
