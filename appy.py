@@ -130,7 +130,7 @@ LISTA_REFERENCISTAS = [
         "cargo": "Bibliotecario 2",
     },
     {"nombre": "JENNY EULALIA PEREZ MEJIA", "cargo": "Bibliotecario 2"},
-    {"nombre": "JOANNA NOEMI MOGOLLÓN GUZMAN", "cargo": "Bibliotecario 2"},
+    {"nombre": "JOANNA NOEMI MOGOLLÓN GUZMÁN", "cargo": "Bibliotecario 2"},
     {"nombre": "PAOLA DEL ROCIO AMAYA ARCE", "cargo": "Bibliotecario 2"},
     {"nombre": "PATRICIA MARIBEL DUCHI PESANTEZ", "cargo": "Bibliotecario 2"},
     {"nombre": "WILMAN GONZALO TANDAZO GUEVARA", "cargo": "Bibliotecario 2"},
