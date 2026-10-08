@@ -2,7 +2,7 @@ import io
 import re
 import unicodedata
 import zipfile
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import docx
 from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
@@ -643,11 +643,14 @@ def crear_documento_word(datos):
   r_c3.font.name = "Arial"
 
   # FECHA
+  # FECHA (Forzada a hora oficial de Ecuador UTC-5)
   p_fecha = doc.add_paragraph()
   p_fecha.alignment = WD_ALIGN_PARAGRAPH.RIGHT
   p_fecha.paragraph_format.space_after = Pt(24)
 
-  hoy = datetime.now()
+  tz_ecuador = timezone(timedelta(hours=-5))
+  hoy = datetime.now(tz_ecuador)
+    
   r_fecha = p_fecha.add_run(
       f"Cuenca, {hoy.day} de {MESES[hoy.month - 1]} de {hoy.year}"
   )
