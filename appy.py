@@ -25,7 +25,6 @@ st.set_page_config(
     layout="wide",
 )
 
-# Estilos CSS Personalizados estilo Universidad de Cuenca (Centrado)
 CSS_UCUENCA = """
 <style>
     /* Estilo General */
@@ -34,76 +33,63 @@ CSS_UCUENCA = """
         background-color: #f4f6f9;
     }
     
-    /* Header Institucional Centrado */
+    /* 1. Header Institucional (Azul con borde inferior rojo) */
     .uc-header {
         text-align: center;
-        background: linear-gradient(90deg, #0F2B5B 0%, #163B7A 100%);
+        background-color: #13386c !important;
         color: white;
         padding: 20px 30px;
-        border-radius: 8px;
+        border-radius: 8px 8px 6px 6px;
         margin-bottom: 25px;
-        border-bottom: 4px solid #9E1B32;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        border-bottom: 5px solid #b81c32 !important;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.08);
     }
     .uc-header h1 {
         color: #ffffff !important;
         font-size: 26px !important;
         font-weight: 700 !important;
         margin: 0 !important;
-        padding: 0 !important;
     }
     .uc-header p {
         color: #d1dbe8 !important;
         font-size: 14px !important;
         margin-top: 5px !important;
-        margin-bottom: 0 !important;
     }
 
-    /* Botones Principales */
-    .stButton>button {
-        background-color: #0F2B5B !important;
-        color: white !important;
-        border-radius: 6px !important;
-        font-weight: bold !important;
+    /* 2. Botones (Azul con borde inferior rojo igual al header) */
+    .stButton>button, .stDownloadButton>button {
+        background-color: #13386c !important;
+        color: #ffffff !important;
+        border-radius: 8px !important;
+        font-weight: 600 !important;
         border: none !important;
+        border-bottom: 4px solid #b81c32 !important;
         padding: 10px 20px !important;
-        transition: all 0.3s ease !important;
-    }
-    .stButton>button:hover {
-        background-color: #9E1B32 !important;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.2) !important;
-        color: white !important;
-    }
-
-    /* Botones de Descarga */
-    .stDownloadButton>button {
-        background-color: #1b6ec2 !important;
-        color: white !important;
-        border-radius: 6px !important;
-        font-weight: bold !important;
-        border: none !important;
-        transition: all 0.3s ease !important;
-    }
-    .stDownloadButton>button:hover {
-        background-color: #0F2B5B !important;
-        color: white !important;
-    }
-
-    /* Ajuste de Secciones / Expanders */
-    .streamlit-expanderHeader {
-        background-color: #ffffff !important;
-        border-left: 5px solid #0F2B5B !important;
-        border-radius: 4px !important;
-        font-weight: bold !important;
-        color: #0F2B5B !important;
+        transition: all 0.2s ease !important;
     }
     
-    /* Inputs */
-    div[data-baseweb="input"] {
-        border-radius: 6px !important;
+    .stButton>button:hover, .stDownloadButton>button:hover {
+        background-color: #0b2347 !important;
+        border-bottom: 4px solid #d4223b !important;
+        color: #ffffff !important;
+    }
+
+    /* 3. Ocultar marcas de agua e íconos de Streamlit Cloud */
+    header[data-testid="stHeader"],
+    div[data-testid="stToolbar"],
+    div[data-testid="stDecoration"],
+    footer,
+    div[data-testid="stStatusWidget"],
+    [data-testid="manage-app-button"],
+    .viewerBadge_container__1QSob {
+        display: none !important;
     }
 </style>
 """
+
+st.markdown(CSS_UCUENCA, unsafe_allow_html=True)
+
+# Estilos CSS Personalizados estilo Universidad de Cuenca (Centrado)
 
 st.markdown(CSS_UCUENCA, unsafe_allow_html=True)
 
