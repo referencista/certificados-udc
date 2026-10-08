@@ -56,7 +56,7 @@ CSS_UCUENCA = """
         margin-top: 5px !important;
     }
 
-    /* 2. Botones (Azul con borde inferior rojo igual al header) */
+    /* 2. Botones (Azul con franja roja inferior) */
     .stButton>button, .stDownloadButton>button {
         background-color: #13386c !important;
         color: #ffffff !important;
@@ -74,18 +74,28 @@ CSS_UCUENCA = """
         color: #ffffff !important;
     }
 
-    /* 3. Ocultar marcas de agua e íconos de Streamlit Cloud */
+    /* 3. ELIMINAR BARRA SUPERIOR (Fork, GitHub, Menú 3 puntos) */
     header[data-testid="stHeader"],
     div[data-testid="stToolbar"],
-    div[data-testid="stDecoration"],
+    div[data-testid="stDecoration"] {
+        display: none !important;
+    }
+
+    /* 4. ELIMINAR ÍCONOS FLOTANTES INFERIORES (Avatar y Botón Rojo) */
     footer,
-    div[data-testid="stStatusWidget"],
     [data-testid="manage-app-button"],
+    button[title="Manage app"],
+    div[class*="stAppDeployButton"],
+    div[data-testid="stStatusWidget"],
+    div[class*="viewerBadge"],
     .viewerBadge_container__1QSob {
         display: none !important;
     }
 </style>
 """
+
+# Inyección en Streamlit
+st.markdown(CSS_UCUENCA, unsafe_allow_html=True)
 
 st.markdown(CSS_UCUENCA, unsafe_allow_html=True)
 
