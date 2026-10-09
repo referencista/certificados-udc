@@ -753,6 +753,7 @@ if tipo_estudio != "Complexivo":
     def limpiar_busqueda():
         st.session_state["handle_input"] = ""
         st.session_state.pop("datos_cargados", None)
+        st.session_state.pop("carrera_input", None)  # <--- AGREGAR ESTA LÍNEA
 
     # 3. Vincular el campo mediante key="handle_input"
     url_input = st.text_input(
@@ -783,13 +784,32 @@ if tipo_estudio != "Complexivo":
             with st.spinner("Conectando con el repositorio DSpace de la UCuenca..."):
                 meta = extraer_metadatos_dspace(url_input)
                 st.session_state["datos_cargados"] = meta
+                # <--- AGREGAR ESTA LÍNEA: Guarda la carrera ya formateada
+                st.session_state["carrera_input"] = formatear_carrera_espanol(meta["carrera"])
 
         meta = st.session_state["datos_cargados"]
 
         st.markdown("---")
         st.markdown("#### 2. Validación de Metadatos Extramunicipales y Estudiantes")
 
+        # Callback para transformar el texto del cuadro en tiempo real al editarlo o pegarlo
+        def auto_formatear_carrera_cb():
+            st.session_state["carrera_input"] = formatear_carrera_espanol(st.session_state["carrera_input"])
+
+        # Inicialización de seguridad por si no se cargó por botón
+        if "carrera_input" not in st.session_state:
+            st.session_state["carrera_input"] = formatear_carrera_espanol(meta["carrera"])
+
         col_f, col_c = st.columns(2)
+        with col_f:
+            facultad_final = st.text_input("Facultad Detectada:", value=meta["facultad"])
+            
+        with col_c:
+            carrera_final = st.text_input(
+                "Carrera / Programa Detectado:",
+                key="carrera_input",
+                on_change=auto_formatear_carrera_cb
+            )
         with col_f:
             facultad_final = st.text_input("Facultad Detectada:", value=meta["facultad"])
         with col_c:
