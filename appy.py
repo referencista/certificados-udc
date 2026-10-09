@@ -309,29 +309,149 @@ FACULTADES_MAP = [
 def normalizar_texto(texto):
     if not texto:
         return ""
-    texto = unicodedata.normalize("NFD", texto)
+    texto = unicodedata.normalize("NFD", str(texto))
     texto = re.sub(r"[\u0300-\u036f]", "", texto)
     return texto.lower()
+
+
+# ==================================================================
+# SISTEMA DE FORMATEO DE CARRERAS (CATÁLOGO CANÓNICO + FALLBACK)
+# ==================================================================
+
+# CAPA 1: Catálogo Oficial con nombres exactos aprobados por UCuenca
+CATALOGO_OFICIAL_CARRERAS = {
+    # Pregrado
+    "pedagogia de las ciencias experimentales": "Pedagogía de las Ciencias Experimentales",
+    "pedagogia de la actividad fisica y deporte": "Pedagogía de la Actividad Física y Deporte",
+    "pedagogia de los idiomas nacionales y extranjeros": "Pedagogía de los Idiomas Nacionales y Extranjeros",
+    "pedagogia de las artes y las humanidades": "Pedagogía de las Artes y las Humanidades",
+    "educacion basica": "Educación Básica",
+    "educacion inicial": "Educación Inicial",
+    "comunicacion": "Comunicación",
+    "sociologia": "Sociología",
+    "trabajo social": "Trabajo Social",
+    "derecho": "Derecho",
+    "genero y desarrollo": "Género y Desarrollo",
+    "orientacion familiar": "Orientación Familiar",
+    "psicologia": "Psicología",
+    "psicologia clinica": "Psicología Clínica",
+    "psicologia social": "Psicología Social",
+    "contabilidad y auditoria": "Contabilidad y Auditoría",
+    "administracion de empresas": "Administración de Empresas",
+    "economia": "Economía",
+    "mercadotecnia": "Mercadotecnia",
+    "finanzas": "Finanzas",
+    "ingenieria civil": "Ingeniería Civil",
+    "ingenieria de sistemas": "Ingeniería de Sistemas",
+    "electronica y telecomunicaciones": "Electrónica y Telecomunicaciones",
+    "ingenieria electrica": "Ingeniería Eléctrica",
+    "ingenieria industrial": "Ingeniería Industrial",
+    "ingenieria quimica": "Ingeniería Química",
+    "ingenieria ambiental": "Ingeniería Ambiental",
+    "bioquimica y farmacia": "Bioquímica y Farmacia",
+    "medicina": "Medicina",
+    "enfermeria": "Enfermería",
+    "fisioterapia": "Fisioterapia",
+    "nutricion y dietetica": "Nutrición y Dietética",
+    "fonoaudiologia": "Fonoaudiología",
+    "imagenologia y radiologia": "Imagenología y Radiología",
+    "medicina veterinaria": "Medicina Veterinaria",
+    "agronomia": "Agronomía",
+    "arquitectura": "Arquitectura",
+    "diseno grafico": "Diseño Gráfico",
+    "diseno de interiores": "Diseño de Interiores",
+    "artes visuales": "Artes Visuales",
+    "gastronomia": "Gastronomía",
+    "turismo": "Turismo",
+    # Posgrado / Maestrías
+    "maestria en contabilidad y auditoria": "Maestría en Contabilidad y Auditoría",
+    "maestria en gestion publica y buen gobierno": "Maestría en Gestión Pública y Buen Gobierno",
+    "maestria en educacion": "Maestría en Educación",
+    "maestria en psicologia": "Maestría en Psicología",
+}
+
+# CAPA 2: Diccionario de acentuación gramatical para carreras no registradas
+PALABRAS_TILDADAS_FALLBACK = {
+    "pedagogia": "pedagogía",
+    "ingenieria": "ingeniería",
+    "psicologia": "psicología",
+    "sociologia": "sociología",
+    "agronomia": "agronomía",
+    "gastronomia": "gastronomía",
+    "hoteleria": "hotelería",
+    "fonoaudiologia": "fonoaudiología",
+    "imagenologia": "imagenología",
+    "auditoria": "auditoría",
+    "maestria": "maestría",
+    "biologia": "biología",
+    "tecnologia": "tecnología",
+    "educacion": "educación",
+    "comunicacion": "comunicación",
+    "administracion": "administración",
+    "gestion": "gestión",
+    "investigacion": "investigación",
+    "orientacion": "orientación",
+    "nutricion": "nutrición",
+    "basica": "básica",
+    "clinica": "clínica",
+    "medica": "médica",
+    "fisica": "física",
+    "quimica": "química",
+    "bioquimica": "bioquímica",
+    "politica": "política",
+    "publica": "pública",
+    "economica": "económica",
+    "electronica": "electrónica",
+    "electrica": "eléctrica",
+    "musica": "música",
+    "genero": "género",
+    "diseno": "diseño",
+    "rediseno": "rediseño",
+}
+
+CONECTORES_ESPANOL = {
+    "de", "del", "la", "las", "los", "el", "y", "e", "o", "u", "en", "con", "por", "para", "a"
+}
 
 
 def formatear_carrera_espanol(texto):
     if not texto:
         return ""
-    
-    # Preposiciones, artículos y conjunciones que deben permanecer en minúscula
-    conectores = {"de", "del", "la", "las", "los", "el", "y", "e", "o", "u", "en", "con", "por", "para", "a"}
-    
-    palabras = texto.strip().split()
-    palabras_formateadas = []
-    
+
+    texto_limpio = re.sub(r"\s+", " ", str(texto)).strip()
+    texto_norm = normalizar_texto(texto_limpio)
+
+    # 1. EVALUAR CAPA 1: Búsqueda exacta en Catálogo Oficial
+    if texto_norm in CATALOGO_OFICIAL_CARRERAS:
+        return CATALOGO_OFICIAL_CARRERAS[texto_norm]
+
+    # 2. EVALUAR CAPA 2: Procesamiento por tokenización (Fallback)
+    palabras = texto_limpio.split()
+    resultado = []
+
     for i, palabra in enumerate(palabras):
-        p_minus = palabra.lower()
-        if i == 0 or p_minus not in conectores:
-            palabras_formateadas.append(p_minus.capitalize())
+        prefijo, sufijo = "", ""
+        p_work = palabra
+
+        if p_work.startswith("("):
+            prefijo, p_work = "(", p_work[1:]
+        if p_work.endswith(")"):
+            sufijo, p_work = ")", p_work[:-1]
+
+        p_norm = normalizar_texto(p_work)
+
+        # Aplicar tilde si está en el diccionario de palabras
+        base = PALABRAS_TILDADAS_FALLBACK.get(p_norm, p_work.lower())
+
+        # Mayúscula inicial salvo que sea conector
+        if i == 0 or p_norm not in CONECTORES_ESPANOL:
+            final = base.capitalize()
         else:
-            palabras_formateadas.append(p_minus)
-            
-    return " ".join(palabras_formateadas)
+            final = base.lower()
+
+        resultado.append(f"{prefijo}{final}{sufijo}")
+
+    return " ".join(resultado)
 
 
 # ------------------------------------------------------------------
@@ -1007,7 +1127,7 @@ else:
                                     data=zip_buffer,
                                     file_name="Certificados_Complexivo_UCuenca.zip",
                                     mime="application/zip",
-                                    key="btn_dl_complexivo_zip"
+                                    key="btn_dl_complexivo_zip",
                                 )
             except Exception as e:
                 st.error(f"❌ Ocurrió un error al procesar el archivo Excel: {e}")
