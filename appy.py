@@ -793,7 +793,7 @@ if tipo_estudio != "Complexivo":
                 payload = {
                     "autor": nom_est.strip().upper(),
                     "facultad": facultad_final.strip(),
-                    "carrera": carrera_final.strip(),
+                    "carrera": formatear_carrera_espanol(carrera_final),  # <--- Transforma el texto automáticamente
                     "tipo_estudio": tipo_estudio,
                     "handle": meta["handle"],
                     "ref_nombre": ref_info["nombre"],
