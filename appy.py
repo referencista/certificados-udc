@@ -3,6 +3,8 @@ import re
 import unicodedata
 import zipfile
 from datetime import datetime, timedelta, timezone
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 import docx
 from docx.enum.table import WD_ALIGN_VERTICAL, WD_TABLE_ALIGNMENT
@@ -418,38 +420,20 @@ def formatear_carrera_espanol(texto):
     if not texto:
         return ""
 
-    texto_limpio = re.sub(r"\s+", " ", str(texto)).strip()
-    texto_norm = normalizar_texto(texto_limpio)
-
-    # 1. EVALUAR CAPA 1: Búsqueda exacta en Catálogo Oficial
-    if texto_norm in CATALOGO_OFICIAL_CARRERAS:
-        return CATALOGO_OFICIAL_CARRERAS[texto_norm]
-
-    # 2. EVALUAR CAPA 2: Procesamiento por tokenización (Fallback)
-    palabras = texto_limpio.split()
+    conectores = {
+        "de", "del", "la", "las", "los", "el", "y", "e", "o", "u", "en", "con", "por", "para", "a"
+    }
+    palabras = str(texto).strip().split()
     resultado = []
 
     for i, palabra in enumerate(palabras):
-        prefijo, sufijo = "", ""
-        p_work = palabra
+        p_minus = palabra.lower()
 
-        if p_work.startswith("("):
-            prefijo, p_work = "(", p_work[1:]
-        if p_work.endswith(")"):
-            sufijo, p_work = ")", p_work[:-1]
-
-        p_norm = normalizar_texto(p_work)
-
-        # Aplicar tilde si está en el diccionario de palabras
-        base = PALABRAS_TILDADAS_FALLBACK.get(p_norm, p_work.lower())
-
-        # Mayúscula inicial salvo que sea conector
-        if i == 0 or p_norm not in CONECTORES_ESPANOL:
-            final = base.capitalize()
+        # Mantiene mayúscula inicial salvo que sea un conector intermedio
+        if i == 0 or p_minus not in conectores:
+            resultado.append(palabra.capitalize())
         else:
-            final = base.lower()
-
-        resultado.append(f"{prefijo}{final}{sufijo}")
+            resultado.append(p_minus)
 
     return " ".join(resultado)
 
@@ -643,9 +627,23 @@ def extraer_metadatos_dspace(url_input):
 # ------------------------------------------------------------------
 def crear_documento_word(datos):
     doc = docx.Document()
-
-    # Estilo global Arial
+    # ------------------------------------------------------------------
+    # FORZAR A WORD A ACTIVAR LA REVISIÓN ORTOGRÁFICA Y SUGERENCIAS
+    # ------------------------------------------------------------------
+    # 1. Asignar idioma Español (Ecuador) al estilo Normal
     style_normal = doc.styles["Normal"]
+    rPr = style_normal.element.get_or_add_rPr()
+    lang = OxmlElement('w:lang')
+    lang.set(qn('w:val'), 'es-EC')
+    rPr.append(lang)
+
+    # 2. Forzar estado de revisión "dirty" para que Word marque los errores al abrir
+    proof = OxmlElement('w:proofState')
+    proof.set(qn('w:spelling'), 'dirty')
+    proof.set(qn('w:grammar'), 'dirty')
+    doc.settings.element.append(proof)
+    
+    # Estilo global Arial
     font_normal = style_normal.font
     font_normal.name = "Arial"
     font_normal.size = Pt(11)
