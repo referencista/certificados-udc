@@ -313,6 +313,25 @@ def normalizar_texto(texto):
   texto = re.sub(r"[\u0300-\u036f]", "", texto)
   return texto.lower()
 
+def formatear_carrera_espanol(texto):
+    if not texto:
+        return ""
+    
+    # Preposiciones, artículos y conjunciones que deben permanecer en minúscula
+    conectores = {"de", "del", "la", "las", "los", "el", "y", "e", "o", "u", "en", "con", "por", "para", "a"}
+    
+    palabras = texto.strip().split()
+    palabras_formateadas = []
+    
+    for i, palabra in enumerate(palabras):
+        p_minus = palabra.lower()
+        # La primera palabra siempre va con mayúscula inicial; las demás solo si no son conectores
+        if i == 0 or p_minus not in conectores:
+            palabras_formateadas.append(p_minus.capitalize())
+        else:
+            palabras_formateadas.append(p_minus)
+            
+    return " ".join(palabras_formateadas)
 
 # ------------------------------------------------------------------
 # EXTRACCIÓN Y LIMPIEZA DE METADATOS VÍA API REST DSPACE 7
