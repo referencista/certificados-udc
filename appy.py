@@ -637,7 +637,7 @@ def crear_documento_word(datos):
         )
     else:
         if tipo == "Maestría":
-            prefix_carrera = "de la Maestría en"
+            prefix_carrera = "de la"
         elif tipo == "Doctorado":
             prefix_carrera = "del Programa de Doctorado en"
         else:
