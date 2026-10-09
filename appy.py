@@ -722,14 +722,9 @@ def crear_documento_word(datos):
     if not fac_clean.lower().startswith("facultad de") and fac_clean:
         fac_clean = f"Facultad de {fac_clean}"
 
+    # Limpiar únicamente la universidad si estuviere presente en el texto de la carrera
     carr_clean = re.sub(
         r"^(Universidad de Cuenca[\.\,\-]?\s*)", "", datos["carrera"], flags=re.I
-    ).strip()
-    carr_clean = re.sub(
-        r"^(carrera de|programa de|maestría en|doctorado en)\s*",
-        "",
-        carr_clean,
-        flags=re.I,
     ).strip()
 
     tipo = datos.get("tipo_estudio", "Pregrado")
@@ -751,24 +746,40 @@ def crear_documento_word(datos):
     r_ced.font.name = "Arial"
     r_ced.font.bold = True
 
-    # Redacción según modalidad
+    # Evaluador dinámico de prefijos
+    carr_lower = carr_clean.lower()
+    tiene_prefijo = any(
+        carr_lower.startswith(p)
+        for p in ["carrera de", "programa de", "maestría en", "maestria en", "doctorado en"]
+    )
+
     if tipo == "Complexivo":
-        texto_cert = (
-            f", estudiante de la {fac_clean}, de la {carr_clean}, "
-            "modalidad Examen Complexivo, no adeuda ningún bien, ni material bibliográfico en esta dependencia."
-        )
-    else:
-        if tipo == "Maestría":
-            prefix_carrera = "de la"
-        elif tipo == "Doctorado":
-            prefix_carrera = "del Programa de Doctorado en"
+        if carr_lower.startswith("de la "):
+            texto_cert = (
+                f", estudiante de la {fac_clean}, {carr_clean}, "
+                "modalidad Examen Complexivo, no adeuda ningún bien, ni material bibliográfico en esta dependencia."
+            )
         else:
-            prefix_carrera = "de la Carrera de"
-        
+            texto_cert = (
+                f", estudiante de la {fac_clean}, de la {carr_clean}, "
+                "modalidad Examen Complexivo, no adeuda ningún bien, ni material bibliográfico en esta dependencia."
+            )
+    else:
+        if tiene_prefijo:
+            prefix_carrera = "de la"
+        else:
+            if tipo == "Maestría":
+                prefix_carrera = "de la Maestría en"
+            elif tipo == "Doctorado":
+                prefix_carrera = "del Programa de Doctorado en"
+            else:
+                prefix_carrera = "de la Carrera de"
+
         texto_cert = (
             f", estudiante de la {fac_clean} {prefix_carrera} {carr_clean}, "
             "no adeuda ningún bien, ni material bibliográfico en esta dependencia."
         )
+
     r_c3 = p_cuerpo.add_run(texto_cert)
     r_c3.font.name = "Arial"
 
