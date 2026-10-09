@@ -97,12 +97,6 @@ CSS_UCUENCA = """
 # Inyección en Streamlit
 st.markdown(CSS_UCUENCA, unsafe_allow_html=True)
 
-st.markdown(CSS_UCUENCA, unsafe_allow_html=True)
-
-# Estilos CSS Personalizados estilo Universidad de Cuenca (Centrado)
-
-st.markdown(CSS_UCUENCA, unsafe_allow_html=True)
-
 # Banner de Encabezado Institucional Centrado con Nombre Oficial
 st.markdown(
     """
@@ -625,7 +619,7 @@ def crear_documento_word(datos):
       )
   else:
       if tipo == "Maestría":
-          prefix_carrera = "del Programa de Maestría en"
+          prefix_carrera = "de la Maestría en"
       elif tipo == "Doctorado":
           prefix_carrera = "del Programa de Doctorado en"
       else:
@@ -689,7 +683,7 @@ def crear_documento_word(datos):
 
   # VERSIÓN
   doc.add_paragraph()
-  doc.add_paragraph()
+  # doc.add_paragraph()
 
   p_ver = doc.add_paragraph()
   p_ver.alignment = WD_ALIGN_PARAGRAPH.RIGHT
@@ -728,12 +722,24 @@ st.markdown("---")
 # ------------------------------------------------------------------
 # CASO A: PREGRADO, MAESTRÍA O DOCTORADO (DSPACE)
 # ------------------------------------------------------------------
+
 if tipo_estudio != "Complexivo":
     st.markdown("#### 1. Parámetros de la Consulta DSpace")
-    
+
+    # 1. Inicializar la clave del Handle en session_state si no existe
+    if "handle_input" not in st.session_state:
+        st.session_state["handle_input"] = ""
+
+    # 2. Función Callback que limpia el Handle y borra la consulta guardada
+    def limpiar_busqueda():
+        st.session_state["handle_input"] = ""
+        st.session_state.pop("datos_cargados", None)
+
+    # 3. Vincular el campo mediante key="handle_input"
     url_input = st.text_input(
         "Handle de DSpace:",
         placeholder="Ej: https://dspace.ucuenca.edu.ec/handle/123456789/49197",
+        key="handle_input",
     )
 
     col_btn1, col_btn2 = st.columns([3, 1])
@@ -745,12 +751,8 @@ if tipo_estudio != "Complexivo":
 
     with col_btn2:
         btn_limpiar = st.button(
-            "🧹 Nueva Búsqueda", use_container_width=True
+            "🧹 Nueva Búsqueda", use_container_width=True, on_click=limpiar_busqueda
         )
-
-    if btn_limpiar:
-        st.session_state.pop("datos_cargados", None)
-        st.rerun()
 
     if btn_procesar or "datos_cargados" in st.session_state:
         if btn_procesar:
