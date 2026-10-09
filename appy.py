@@ -722,10 +722,23 @@ def crear_documento_word(datos):
     if not fac_clean.lower().startswith("facultad de") and fac_clean:
         fac_clean = f"Facultad de {fac_clean}"
 
-    # Limpiar únicamente la universidad si estuviere presente en el texto de la carrera
+    # Sanitización profunda del nombre del programa/carrera
+    carr_clean = str(datos["carrera"]).strip()
+
+    # 1. Eliminar menciones explícitas a la universidad
     carr_clean = re.sub(
-        r"^(Universidad de Cuenca[\.\,\-]?\s*)", "", datos["carrera"], flags=re.I
+        r"^(Universidad de Cuenca[\.\,\-]?\s*)", "", carr_clean, flags=re.I
     ).strip()
+
+    # 2. Eliminar TODOS los prefijos repetidos al inicio (ej. "Maestría en Maestría en...")
+    patron_prefijos = r"^(carrera de|programa de maestría en|programa de maestria en|maestría en|maestria en|programa de doctorado en|doctorado en|programa de|msc\.|ing\.|lic\.)\s*"
+    while re.search(patron_prefijos, carr_clean, flags=re.I):
+        carr_clean = re.sub(patron_prefijos, "", carr_clean, flags=re.I).strip()
+
+    # 3. Eliminar muletillas y prefijos duplicados al final (ej. "...Maestria en")
+    patron_sufijos = r"\s*(carrera de|programa de|maestría en|maestria en|doctorado en)$"
+    while re.search(patron_sufijos, carr_clean, flags=re.I):
+        carr_clean = re.sub(patron_sufijos, "", carr_clean, flags=re.I).strip()
 
     tipo = datos.get("tipo_estudio", "Pregrado")
 
@@ -746,34 +759,19 @@ def crear_documento_word(datos):
     r_ced.font.name = "Arial"
     r_ced.font.bold = True
 
-    # Evaluador dinámico de prefijos
-    carr_lower = carr_clean.lower()
-    tiene_prefijo = any(
-        carr_lower.startswith(p)
-        for p in ["carrera de", "programa de", "maestría en", "maestria en", "doctorado en"]
-    )
-
+    # Ensamblaje limpio según modalidad
     if tipo == "Complexivo":
-        if carr_lower.startswith("de la "):
-            texto_cert = (
-                f", estudiante de la {fac_clean}, {carr_clean}, "
-                "modalidad Examen Complexivo, no adeuda ningún bien, ni material bibliográfico en esta dependencia."
-            )
-        else:
-            texto_cert = (
-                f", estudiante de la {fac_clean}, de la {carr_clean}, "
-                "modalidad Examen Complexivo, no adeuda ningún bien, ni material bibliográfico en esta dependencia."
-            )
+        texto_cert = (
+            f", estudiante de la {fac_clean}, de la {carr_clean}, "
+            "modalidad Examen Complexivo, no adeuda ningún bien, ni material bibliográfico en esta dependencia."
+        )
     else:
-        if tiene_prefijo:
-            prefix_carrera = "de la"
+        if tipo == "Maestría":
+            prefix_carrera = "de la Maestría en"
+        elif tipo == "Doctorado":
+            prefix_carrera = "del Programa de Doctorado en"
         else:
-            if tipo == "Maestría":
-                prefix_carrera = "de la Maestría en"
-            elif tipo == "Doctorado":
-                prefix_carrera = "del Programa de Doctorado en"
-            else:
-                prefix_carrera = "de la Carrera de"
+            prefix_carrera = "de la Carrera de"
 
         texto_cert = (
             f", estudiante de la {fac_clean} {prefix_carrera} {carr_clean}, "
@@ -783,6 +781,7 @@ def crear_documento_word(datos):
     r_c3 = p_cuerpo.add_run(texto_cert)
     r_c3.font.name = "Arial"
 
+    
     # FECHA (UTC-5 Ecuador)
     p_fecha = doc.add_paragraph()
     p_fecha.alignment = WD_ALIGN_PARAGRAPH.RIGHT
