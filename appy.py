@@ -788,35 +788,36 @@ if tipo_estudio != "Complexivo":
                 st.session_state["carrera_input"] = formatear_carrera_espanol(meta["carrera"])
 
         meta = st.session_state["datos_cargados"]
+        
+        # ✅ CÓDIGO LIMPIO Y SIN DUPLICADOS (Pega esto en su lugar):
 
-        st.markdown("---")
-        st.markdown("#### 2. Validación de Metadatos Extramunicipales y Estudiantes")
+st.markdown("---")
+st.markdown("#### 2. Validación de Metadatos Extramunicipales y Estudiantes")
 
-        # Callback para transformar el texto del cuadro en tiempo real al editarlo o pegarlo
-        def auto_formatear_carrera_cb():
-            st.session_state["carrera_input"] = formatear_carrera_espanol(st.session_state["carrera_input"])
 
-        # Inicialización de seguridad por si no se cargó por botón
-        if "carrera_input" not in st.session_state:
-            st.session_state["carrera_input"] = formatear_carrera_espanol(meta["carrera"])
+def auto_formatear_carrera_cb():
+    st.session_state["carrera_input"] = formatear_carrera_espanol(
+        st.session_state["carrera_input"]
+    )
 
-        col_f, col_c = st.columns(2)
-        with col_f:
-            facultad_final = st.text_input("Facultad Detectada:", value=meta["facultad"])
-            
-        with col_c:
-            carrera_final = st.text_input(
-                "Carrera / Programa Detectado:",
-                key="carrera_input",
-                on_change=auto_formatear_carrera_cb
-            )
-        with col_f:
-            facultad_final = st.text_input("Facultad Detectada:", value=meta["facultad"])
-        with col_c:
-            carrera_final = st.text_input(
-                "Carrera / Programa Detectado:", value=meta["carrera"]
-            )
 
+if "carrera_input" not in st.session_state:
+    st.session_state["carrera_input"] = formatear_carrera_espanol(
+        meta["carrera"]
+    )
+
+col_f, col_c = st.columns(2)
+with col_f:
+    facultad_final = st.text_input(
+        "Facultad Detectada:", value=meta["facultad"]
+    )
+
+with col_c:
+    carrera_final = st.text_input(
+        "Carrera / Programa Detectado:",
+        key="carrera_input",
+        on_change=auto_formatear_carrera_cb,
+    )
         st.markdown(f"**Estudiantes / Autores encontrados ({len(meta['autores'])})**")
 
         certificados_generados = []
