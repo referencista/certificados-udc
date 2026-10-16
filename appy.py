@@ -443,24 +443,28 @@ def formatear_carrera_espanol(texto):
 def extraer_metadatos_dspace(url_input):
     url_clean = url_input.strip()
 
+    # Identificar UUID o Handle
     match_uuid = re.search(
         r"([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})",
         url_clean,
         re.I,
     )
-    match_handle = re.search(r"(\d+/\d+)", url_clean)
+    match_handle = re.search(r"handle/(.+)$", url_clean, re.I) or re.search(
+        r"(\d+[\.\d]*/\d+)", url_clean
+    )
 
     uuid_id = match_uuid.group(1) if match_uuid else None
-    handle_id = match_handle.group(1) if match_handle else None
+    handle_id = match_handle.group(1).strip() if match_handle else None
 
+    # Dominios de la API REST de la Universidad de Cuenca
     base_apis = [
-        "https://dspace.ucuenca.edu.ec/server/api",
         "https://rest-dspace.ucuenca.edu.ec/server/api",
+        "https://dspace.ucuenca.edu.ec/server/api",
         "https://dspace.ucuenca.edu.ec/api",
     ]
 
     headers = {
-        "Accept": "application/json, text/plain, */*",
+        "Accept": "application/json, text/html, */*",
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             " (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
@@ -477,43 +481,48 @@ def extraer_metadatos_dspace(url_input):
 
     data = None
 
-    # --- INTENTO 1: RESOLUCIÓN REST API EN DSPACE 9.3 ---
+    # --- INTENTO 1: CONSULTA A LA API REST DSPACE 9.3 ---
+    endpoints_to_try = []
+    if uuid_id:
+        endpoints_to_try.append(
+            f"/core/items/{uuid_id}?embed=owningCollection"
+        )
+    if handle_id:
+        endpoints_to_try.append(
+            f"/pid/find?id={handle_id}&embed=owningCollection"
+        )
+        endpoints_to_try.append(
+            f"/pid/find?id=handle/{handle_id}&embed=owningCollection"
+        )
+        endpoints_to_try.append(
+            f"/pid/find?id=http://hdl.handle.net/{handle_id}&embed=owningCollection"
+        )
+
     for base in base_apis:
-        try:
-            # Paso A: Si no tenemos UUID pero sí Handle, resolverlo vía pid/find capturando redirecciones 302/301
-            if not uuid_id and handle_id:
-                pid_url = f"{base}/pid/find?id={handle_id}"
-                resp_pid = requests.get(
-                    pid_url, headers=headers, timeout=6, allow_redirects=False, verify=False
+        for ep in endpoints_to_try:
+            try:
+                # Permitir redirecciones (allow_redirects=True) para resolver 301/302 de DSpace 9.3
+                resp = requests.get(
+                    base + ep,
+                    headers=headers,
+                    timeout=10,
+                    verify=False,
+                    allow_redirects=True,
                 )
+                if resp.status_code == 200:
+                    data_json = resp.json()
+                    if isinstance(data_json, dict) and (
+                        "metadata" in data_json or "uuid" in data_json
+                    ):
+                        data = data_json
+                        break
+            except Exception:
+                continue
+        if data:
+            break
 
-                if resp_pid.status_code in (301, 302, 307):
-                    location = resp_pid.headers.get("Location", "")
-                    m_u = re.search(
-                        r"([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})",
-                        location,
-                        re.I,
-                    )
-                    if m_u:
-                        uuid_id = m_u.group(1)
-                elif resp_pid.status_code == 200:
-                    data_pid = resp_pid.json()
-                    uuid_id = data_pid.get("uuid") or data_pid.get("id")
-
-            # Paso B: Consulta directa con embed=owningCollection usando el UUID
-            if uuid_id:
-                item_url = f"{base}/core/items/{uuid_id}?embed=owningCollection"
-                resp_item = requests.get(
-                    item_url, headers=headers, timeout=8, verify=False
-                )
-                if resp_item.status_code == 200:
-                    data = resp_item.json()
-                    break
-        except Exception:
-            continue
-
-    # Procesar JSON si la API respondió correctamente
-    if data and "metadata" in data:
+    # Si se obtuvo el ítem pero falta owningCollection, consultar por UUID
+    if data:
         metadata = data.get("metadata", {})
         try:
             owning_coll_name = (
@@ -525,23 +534,61 @@ def extraer_metadatos_dspace(url_input):
         except Exception:
             pass
 
-    # --- INTENTO 2: RESPALDO VÍA SSR / HTML (DSpace 9.3 Render Engine) ---
+        item_uuid = data.get("uuid") or data.get("id")
+        if not owning_coll_name and item_uuid:
+            for base in base_apis:
+                try:
+                    r_coll = requests.get(
+                        f"{base}/core/items/{item_uuid}?embed=owningCollection",
+                        headers=headers,
+                        timeout=5,
+                        verify=False,
+                    )
+                    if r_coll.status_code == 200:
+                        d_coll = r_coll.json()
+                        owning_coll_name = (
+                            d_coll.get("_embedded", {})
+                            .get("owningCollection", {})
+                            .get("name", "")
+                            .strip()
+                        )
+                        if owning_coll_name:
+                            break
+                except Exception:
+                    pass
+
+    # --- INTENTO 2: RESPALDO POR SCRAPING WEB (Flexibilidad de Atributos) ---
     if not metadata:
         try:
             resp_html = requests.get(
-                url_clean, headers=headers, timeout=8, verify=False
+                url_clean,
+                headers=headers,
+                timeout=10,
+                verify=False,
+                allow_redirects=True,
             )
             if resp_html.status_code == 200:
                 html_text = resp_html.text
                 meta_dict = {}
 
-                pattern_meta = r'<meta\s+(?:name|property|itemprop)=["\']([^"\']+)["\']\s+content=["\']([^"\']+)["\']'
-                for name, content in re.findall(pattern_meta, html_text, re.I):
-                    k, v = name.strip(), content.strip()
-                    if k not in meta_dict:
-                        meta_dict[k] = []
-                    meta_dict[k].append({"value": v})
+                # Regex flexible para capturar <meta> sin importar el orden de atributos (content/name/property/itemprop)
+                tags = re.findall(r"<meta\s+([^>]+)>", html_text, re.I)
+                for tag_attr in tags:
+                    name_m = re.search(
+                        r'(?:name|property|itemprop)=["\']([^"\']+)["\']',
+                        tag_attr,
+                        re.I,
+                    )
+                    content_m = re.search(
+                        r'content=["\']([^"\']+)["\']', tag_attr, re.I
+                    )
+                    if name_m and content_m:
+                        k = name_m.group(1).strip()
+                        v = content_m.group(1).strip()
+                        if k and v:
+                            meta_dict.setdefault(k, []).append({"value": v})
 
+                # Extraer Schema.org JSON-LD
                 json_ld = re.findall(
                     r'<script\s+type=["\']application/ld\+json["\']\s*>(.*?)</script>',
                     html_text,
@@ -566,7 +613,7 @@ def extraer_metadatos_dspace(url_input):
         except Exception:
             pass
 
-    # --- EXTRAER Y ENSAMBLAR CAMPOS FINALES ---
+    # --- EXTRAER Y PROCESAR METADATOS FINALES ---
     def get_all_meta_values(keys_list):
         if isinstance(keys_list, str):
             keys_list = [keys_list]
@@ -612,6 +659,7 @@ def extraer_metadatos_dspace(url_input):
         "dc.contributor.department",
         "dc.publisher.department",
         "dc.degree.grantor",
+        "citation_publisher",
     ])
     if owning_coll_name:
         candidatos_facultad.append(owning_coll_name)
@@ -633,7 +681,7 @@ def extraer_metadatos_dspace(url_input):
                 facultad_detectada = fac_oficial
                 break
 
-    # 3. Carrera / Programa (Excluyendo dc.subject para evitar palabras clave)
+    # 3. Carrera / Programa
     candidatos_carrera = []
     if owning_coll_name:
         candidatos_carrera.append(owning_coll_name)
@@ -698,7 +746,6 @@ def extraer_metadatos_dspace(url_input):
         "carrera": carrera_detectada,
         "handle": handle_official,
     }
-
 
 # ------------------------------------------------------------------
 # GENERADOR DEL DOCUMENTO WORD (.DOCX) - FORMATO INTACTO
