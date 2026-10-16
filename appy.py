@@ -1,4 +1,5 @@
 import io
+import json
 import re
 import unicodedata
 import zipfile
@@ -394,7 +395,7 @@ PALABRAS_TILDADAS_FALLBACK = {
 }
 
 CONECTORES_ESPANOL = {
-    "de", "del", "la", "las", "los", "el", "y", "e", "o", "u", "en", "con", "por", "para", "a"
+    "de", "del", "la", "las", "los", "el", "y", "e", "o", "u", "en", "con", "por", "para", "a", "mención", "mencion"
 }
 
 
@@ -436,60 +437,136 @@ def formatear_carrera_espanol(texto):
 
 
 # ------------------------------------------------------------------
-# EXTRACCIÓN Y LIMPIEZA DE METADATOS VÍA API REST DSPACE 7
+# EXTRACCIÓN Y LIMPIEZA DE METADATOS VÍA DSPACE 9.3 (API REST / SSR)
 # ------------------------------------------------------------------
 @st.cache_data(ttl=3600, show_spinner=False)
 def extraer_metadatos_dspace(url_input):
     url_clean = url_input.strip()
 
-    match_handle = re.search(r"(\d+/\d+)", url_clean)
     match_uuid = re.search(
         r"([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})",
         url_clean,
         re.I,
     )
+    match_handle = re.search(r"(\d+/\d+)", url_clean)
+
+    uuid_id = match_uuid.group(1) if match_uuid else None
+    handle_id = match_handle.group(1) if match_handle else None
 
     base_apis = [
-        "https://rest-dspace.ucuenca.edu.ec/server/api",
         "https://dspace.ucuenca.edu.ec/server/api",
+        "https://rest-dspace.ucuenca.edu.ec/server/api",
+        "https://dspace.ucuenca.edu.ec/api",
     ]
 
-    endpoint = None
-    handle_official = url_clean
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+            " (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+        ),
+    }
 
-    if match_handle:
-        handle_id = match_handle.group(1)
-        endpoint = f"/pid/find?id={handle_id}&embed=owningCollection"
-        handle_official = f"https://dspace.ucuenca.edu.ec/handle/{handle_id}"
-    elif match_uuid:
-        uuid_id = match_uuid.group(1)
-        endpoint = f"/core/items/{uuid_id}?embed=owningCollection"
+    metadata = {}
+    owning_coll_name = ""
+    handle_official = (
+        f"https://dspace.ucuenca.edu.ec/handle/{handle_id}"
+        if handle_id
+        else url_clean
+    )
 
-    headers = {"Accept": "application/json", "User-Agent": "Mozilla/5.0"}
     data = None
 
-    if endpoint:
-        for base in base_apis:
-            try:
-                resp = requests.get(
-                    base + endpoint, headers=headers, timeout=10, verify=False
+    # --- INTENTO 1: RESOLUCIÓN REST API EN DSPACE 9.3 ---
+    for base in base_apis:
+        try:
+            # Paso A: Si no tenemos UUID pero sí Handle, resolverlo vía pid/find capturando redirecciones 302/301
+            if not uuid_id and handle_id:
+                pid_url = f"{base}/pid/find?id={handle_id}"
+                resp_pid = requests.get(
+                    pid_url, headers=headers, timeout=6, allow_redirects=False, verify=False
                 )
-                if resp.status_code == 200:
-                    data = resp.json()
+
+                if resp_pid.status_code in (301, 302, 307):
+                    location = resp_pid.headers.get("Location", "")
+                    m_u = re.search(
+                        r"([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})",
+                        location,
+                        re.I,
+                    )
+                    if m_u:
+                        uuid_id = m_u.group(1)
+                elif resp_pid.status_code == 200:
+                    data_pid = resp_pid.json()
+                    uuid_id = data_pid.get("uuid") or data_pid.get("id")
+
+            # Paso B: Consulta directa con embed=owningCollection usando el UUID
+            if uuid_id:
+                item_url = f"{base}/core/items/{uuid_id}?embed=owningCollection"
+                resp_item = requests.get(
+                    item_url, headers=headers, timeout=8, verify=False
+                )
+                if resp_item.status_code == 200:
+                    data = resp_item.json()
                     break
-            except Exception:
-                continue
+        except Exception:
+            continue
 
-    if not data:
-        return {
-            "autores": ["APELLIDOS, NOMBRES ESTUDIANTE"],
-            "facultad": "Facultad de ",
-            "carrera": "",
-            "handle": handle_official,
-        }
+    # Procesar JSON si la API respondió correctamente
+    if data and "metadata" in data:
+        metadata = data.get("metadata", {})
+        try:
+            owning_coll_name = (
+                data.get("_embedded", {})
+                .get("owningCollection", {})
+                .get("name", "")
+                .strip()
+            )
+        except Exception:
+            pass
 
-    metadata = data.get("metadata", {})
+    # --- INTENTO 2: RESPALDO VÍA SSR / HTML (DSpace 9.3 Render Engine) ---
+    if not metadata:
+        try:
+            resp_html = requests.get(
+                url_clean, headers=headers, timeout=8, verify=False
+            )
+            if resp_html.status_code == 200:
+                html_text = resp_html.text
+                meta_dict = {}
 
+                pattern_meta = r'<meta\s+(?:name|property|itemprop)=["\']([^"\']+)["\']\s+content=["\']([^"\']+)["\']'
+                for name, content in re.findall(pattern_meta, html_text, re.I):
+                    k, v = name.strip(), content.strip()
+                    if k not in meta_dict:
+                        meta_dict[k] = []
+                    meta_dict[k].append({"value": v})
+
+                json_ld = re.findall(
+                    r'<script\s+type=["\']application/ld\+json["\']\s*>(.*?)</script>',
+                    html_text,
+                    re.DOTALL | re.I,
+                )
+                for script in json_ld:
+                    try:
+                        ld_data = json.loads(script.strip())
+                        if "author" in ld_data:
+                            auths = ld_data["author"]
+                            if isinstance(auths, dict):
+                                auths = [auths]
+                            for a in auths:
+                                if isinstance(a, dict) and "name" in a:
+                                    meta_dict.setdefault(
+                                        "dc.contributor.author", []
+                                    ).append({"value": a["name"]})
+                    except Exception:
+                        pass
+
+                metadata = meta_dict
+        except Exception:
+            pass
+
+    # --- EXTRAER Y ENSAMBLAR CAMPOS FINALES ---
     def get_all_meta_values(keys_list):
         if isinstance(keys_list, str):
             keys_list = [keys_list]
@@ -497,19 +574,32 @@ def extraer_metadatos_dspace(url_input):
         for key in keys_list:
             items = metadata.get(key, [])
             for item in items:
-                v = item.get("value", "").strip()
+                v = (
+                    item.get("value", "").strip()
+                    if isinstance(item, dict)
+                    else str(item).strip()
+                )
                 if v and v not in res:
                     res.append(v)
         return res
 
-    raw_authors = get_all_meta_values(["dc.contributor.author", "dc.creator"])
+    # 1. Autores
+    raw_authors = get_all_meta_values([
+        "dc.contributor.author",
+        "dc.creator",
+        "citation_author",
+        "DC.creator",
+        "author",
+        "cris.author.name",
+    ])
     autores_formateados = []
     for a in raw_authors:
         a_clean = re.sub(r"\s+", " ", a).strip().upper()
         if a_clean and a_clean not in autores_formateados:
             autores_formateados.append(a_clean)
 
-    titulos = " ".join(get_all_meta_values(["dc.title"]))
+    # 2. Facultad
+    titulos = " ".join(get_all_meta_values(["dc.title", "citation_title"]))
     materias = " ".join(
         get_all_meta_values(["dc.subject", "dc.description.abstract"])
     )
@@ -523,18 +613,6 @@ def extraer_metadatos_dspace(url_input):
         "dc.publisher.department",
         "dc.degree.grantor",
     ])
-
-    owning_coll_name = ""
-    try:
-        owning_coll_name = (
-            data.get("_embedded", {})
-            .get("owningCollection", {})
-            .get("name", "")
-            .strip()
-        )
-    except Exception:
-        pass
-
     if owning_coll_name:
         candidatos_facultad.append(owning_coll_name)
 
@@ -555,16 +633,22 @@ def extraer_metadatos_dspace(url_input):
                 facultad_detectada = fac_oficial
                 break
 
-    candidatos_carrera = get_all_meta_values([
-        "thesis.degree.discipline",
-        "thesis.degree.name",
-        "dc.degree.discipline",
-        "dc.degree.program",
-        "dc.subject",
-    ])
-
-    if owning_coll_name and owning_coll_name not in candidatos_carrera:
+    # 3. Carrera / Programa (Excluyendo dc.subject para evitar palabras clave)
+    candidatos_carrera = []
+    if owning_coll_name:
         candidatos_carrera.append(owning_coll_name)
+
+    candidatos_carrera.extend(
+        get_all_meta_values([
+            "thesis.degree.discipline",
+            "thesis.degree.name",
+            "dc.degree.discipline",
+            "dc.degree.program",
+            "dc.publisher.program",
+            "dc.department",
+            "DC.degree.discipline",
+        ])
+    )
 
     carrera_detectada = ""
     for cand in candidatos_carrera:
@@ -575,7 +659,7 @@ def extraer_metadatos_dspace(url_input):
             flags=re.I,
         ).strip()
         cand_clean = re.sub(
-            r"^(carrera de|programa de|maestría en|doctorado en|msc\.|ing\.|lic\.)\s*",
+            r"^(carrera de|programa de|maestría en|maestria en|doctorado en|msc\.|ing\.|lic\.)\s*",
             "",
             cand_clean,
             flags=re.I,
@@ -592,16 +676,13 @@ def extraer_metadatos_dspace(url_input):
     if not carrera_detectada and candidatos_carrera:
         carrera_detectada = candidatos_carrera[0]
 
+    # 4. Handle Oficial
     uri_items = metadata.get("dc.identifier.uri", [])
     for uri in uri_items:
-        val_uri = uri.get("value", "")
-        if "handle/" in val_uri:
-            match_h = re.search(r"(\d+/\d+)", val_uri)
-            if match_h:
-                handle_official = (
-                    f"https://dspace.ucuenca.edu.ec/handle/{match_h.group(1)}"
-                )
-                break
+        val_uri = uri.get("value", "") if isinstance(uri, dict) else str(uri)
+        if "handle/" in val_uri or "items/" in val_uri:
+            handle_official = val_uri
+            break
 
     return {
         "autores": (
@@ -612,7 +693,7 @@ def extraer_metadatos_dspace(url_input):
         "facultad": (
             facultad_detectada
             if facultad_detectada
-            else "Facultad de Ciencias Químicas"
+            else "Facultad de Filosofía, Letras y Ciencias de la Educación"
         ),
         "carrera": carrera_detectada,
         "handle": handle_official,
@@ -883,7 +964,7 @@ if tipo_estudio != "Complexivo":
 
     url_input = st.text_input(
         "Handle de DSpace:",
-        placeholder="Ej: https://dspace.ucuenca.edu.ec/handle/123456789/49197",
+        placeholder="Ej: https://dspace.ucuenca.edu.ec/handle/123456789/49197 o https://dspace.ucuenca.edu.ec/items/...",
         key="handle_input",
     )
 
