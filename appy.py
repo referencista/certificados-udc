@@ -2,6 +2,7 @@ import io
 import json
 import re
 import unicodedata
+import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime, timedelta, timezone
 
@@ -437,7 +438,7 @@ def formatear_carrera_espanol(texto):
 
 
 # ------------------------------------------------------------------
-# EXTRACCIÓN Y LIMPIEZA DE METADATOS VÍA DSPACE 9.3 (API REST / SSR)
+# EXTRACCIÓN Y LIMPIEZA DE METADATOS VÍA DSPACE 9.3 (API REST / OAI-PMH)
 # ------------------------------------------------------------------
 @st.cache_data(ttl=3600, show_spinner=False)
 def extraer_metadatos_dspace(url_input):
@@ -456,15 +457,14 @@ def extraer_metadatos_dspace(url_input):
     uuid_id = match_uuid.group(1) if match_uuid else None
     handle_id = match_handle.group(1).strip() if match_handle else None
 
-    # Dominios de la API REST de la Universidad de Cuenca
     base_apis = [
-        "https://rest-dspace.ucuenca.edu.ec/server/api",
         "https://dspace.ucuenca.edu.ec/server/api",
+        "https://rest-dspace.ucuenca.edu.ec/server/api",
         "https://dspace.ucuenca.edu.ec/api",
     ]
 
     headers = {
-        "Accept": "application/json, text/html, */*",
+        "Accept": "application/json, text/html, application/xhtml+xml, */*",
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
             " (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
@@ -481,47 +481,62 @@ def extraer_metadatos_dspace(url_input):
 
     data = None
 
-    # --- INTENTO 1: CONSULTA A LA API REST DSPACE 9.3 ---
-    endpoints_to_try = []
-    if uuid_id:
-        endpoints_to_try.append(
-            f"/core/items/{uuid_id}?embed=owningCollection"
-        )
-    if handle_id:
-        endpoints_to_try.append(
-            f"/pid/find?id={handle_id}&embed=owningCollection"
-        )
-        endpoints_to_try.append(
-            f"/pid/find?id=handle/{handle_id}&embed=owningCollection"
-        )
-        endpoints_to_try.append(
-            f"/pid/find?id=http://hdl.handle.net/{handle_id}&embed=owningCollection"
-        )
-
-    for base in base_apis:
-        for ep in endpoints_to_try:
+    # --- MÉTODO 1: RESOLUCIÓN REST API EN 2 PASOS (DSPACE 9.3) ---
+    # Paso A: Si solo tenemos Handle, resolver el UUID mediante pid/find
+    if not uuid_id and handle_id:
+        for base in base_apis:
             try:
-                # Permitir redirecciones (allow_redirects=True) para resolver 301/302 de DSpace 9.3
-                resp = requests.get(
-                    base + ep,
-                    headers=headers,
-                    timeout=10,
-                    verify=False,
-                    allow_redirects=True,
+                pid_url = f"{base}/pid/find?id={handle_id}"
+                resp_pid = requests.get(
+                    pid_url, headers=headers, timeout=8, verify=False, allow_redirects=True
                 )
-                if resp.status_code == 200:
-                    data_json = resp.json()
-                    if isinstance(data_json, dict) and (
-                        "metadata" in data_json or "uuid" in data_json
-                    ):
-                        data = data_json
+                
+                # Buscar UUID en la dirección final redirigida
+                m_u = re.search(
+                    r"([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})",
+                    resp_pid.url,
+                    re.I,
+                )
+                if m_u:
+                    uuid_id = m_u.group(1)
+                    break
+
+                if resp_pid.status_code == 200:
+                    try:
+                        d_pid = resp_pid.json()
+                        uuid_id = d_pid.get("uuid") or d_pid.get("id")
+                        if not uuid_id and "_links" in d_pid:
+                            href = d_pid["_links"].get("self", {}).get("href", "")
+                            m_u2 = re.search(
+                                r"([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})",
+                                href,
+                                re.I,
+                            )
+                            if m_u2:
+                                uuid_id = m_u2.group(1)
+                    except Exception:
+                        pass
+                if uuid_id:
+                    break
+            except Exception:
+                continue
+
+    # Paso B: Consulta directa a /core/items/{uuid}?embed=owningCollection
+    if uuid_id:
+        for base in base_apis:
+            try:
+                item_url = f"{base}/core/items/{uuid_id}?embed=owningCollection"
+                resp_item = requests.get(
+                    item_url, headers=headers, timeout=8, verify=False
+                )
+                if resp_item.status_code == 200:
+                    d_item = resp_item.json()
+                    if isinstance(d_item, dict) and "metadata" in d_item:
+                        data = d_item
                         break
             except Exception:
                 continue
-        if data:
-            break
 
-    # Si se obtuvo el ítem pero falta owningCollection, consultar por UUID
     if data:
         metadata = data.get("metadata", {})
         try:
@@ -534,61 +549,62 @@ def extraer_metadatos_dspace(url_input):
         except Exception:
             pass
 
-        item_uuid = data.get("uuid") or data.get("id")
-        if not owning_coll_name and item_uuid:
-            for base in base_apis:
-                try:
-                    r_coll = requests.get(
-                        f"{base}/core/items/{item_uuid}?embed=owningCollection",
-                        headers=headers,
-                        timeout=5,
-                        verify=False,
-                    )
-                    if r_coll.status_code == 200:
-                        d_coll = r_coll.json()
-                        owning_coll_name = (
-                            d_coll.get("_embedded", {})
-                            .get("owningCollection", {})
-                            .get("name", "")
-                            .strip()
-                        )
-                        if owning_coll_name:
-                            break
-                except Exception:
-                    pass
+    # --- MÉTODO 2: PROTOCOLO OAI-PMH (Servidor Nativo DSpace) ---
+    if not metadata and handle_id:
+        try:
+            oai_url = (
+                f"https://dspace.ucuenca.edu.ec/oai/request?verb=GetRecord&"
+                f"identifier=oai:dspace.ucuenca.edu.ec:{handle_id}&metadataPrefix=oai_dc"
+            )
+            resp_oai = requests.get(oai_url, headers=headers, timeout=8, verify=False)
+            if resp_oai.status_code == 200 and "<OAI-PMH" in resp_oai.text:
+                root = ET.fromstring(resp_oai.text)
+                ns = {
+                    "dc": "http://purl.org/dc/elements/1.1/",
+                    "oai_dc": "http://www.openarchives.org/OAI/2.0/oai_dc/",
+                }
+                
+                meta_oai = {}
+                for creator in root.findall(".//dc:creator", ns):
+                    if creator.text:
+                        meta_oai.setdefault("dc.contributor.author", []).append({"value": creator.text.strip()})
+                for pub in root.findall(".//dc:publisher", ns):
+                    if pub.text:
+                        meta_oai.setdefault("dc.publisher", []).append({"value": pub.text.strip()})
+                for t in root.findall(".//dc:title", ns):
+                    if t.text:
+                        meta_oai.setdefault("dc.title", []).append({"value": t.text.strip()})
+                for subj in root.findall(".//dc:subject", ns):
+                    if subj.text:
+                        meta_oai.setdefault("dc.subject", []).append({"value": subj.text.strip()})
+                
+                if meta_oai:
+                    metadata = meta_oai
+        except Exception:
+            pass
 
-    # --- INTENTO 2: RESPALDO POR SCRAPING WEB (Flexibilidad de Atributos) ---
+    # --- MÉTODO 3: RESPALDO POR SCRAPING HTML SSR ---
     if not metadata:
         try:
             resp_html = requests.get(
-                url_clean,
-                headers=headers,
-                timeout=10,
-                verify=False,
-                allow_redirects=True,
+                url_clean, headers=headers, timeout=10, verify=False, allow_redirects=True
             )
             if resp_html.status_code == 200:
                 html_text = resp_html.text
                 meta_dict = {}
 
-                # Regex flexible para capturar <meta> sin importar el orden de atributos (content/name/property/itemprop)
                 tags = re.findall(r"<meta\s+([^>]+)>", html_text, re.I)
                 for tag_attr in tags:
                     name_m = re.search(
-                        r'(?:name|property|itemprop)=["\']([^"\']+)["\']',
-                        tag_attr,
-                        re.I,
+                        r'(?:name|property|itemprop)=["\']([^"\']+)["\']', tag_attr, re.I
                     )
-                    content_m = re.search(
-                        r'content=["\']([^"\']+)["\']', tag_attr, re.I
-                    )
+                    content_m = re.search(r'content=["\']([^"\']+)["\']', tag_attr, re.I)
                     if name_m and content_m:
                         k = name_m.group(1).strip()
                         v = content_m.group(1).strip()
                         if k and v:
                             meta_dict.setdefault(k, []).append({"value": v})
 
-                # Extraer Schema.org JSON-LD
                 json_ld = re.findall(
                     r'<script\s+type=["\']application/ld\+json["\']\s*>(.*?)</script>',
                     html_text,
@@ -645,24 +661,37 @@ def extraer_metadatos_dspace(url_input):
         if a_clean and a_clean not in autores_formateados:
             autores_formateados.append(a_clean)
 
-    # 2. Facultad
+    # 2. Análisis de dc.publisher (Ej: "Universidad de Cuenca. Facultad de ... Carrera de ...")
+    publishers = get_all_meta_values(["dc.publisher", "thesis.degree.grantor", "citation_publisher"])
+    pub_facultad, pub_carrera = "", ""
+    for pub_text in publishers:
+        parts = [p.strip() for p in pub_text.split(".") if p.strip()]
+        for part in parts:
+            p_norm = normalizar_texto(part)
+            if "facultad de" in p_norm and not pub_facultad:
+                pub_facultad = part
+            elif any(k in p_norm for k in ["carrera de", "maestria en", "maestría en", "programa de", "doctorado en"]) and not pub_carrera:
+                pub_carrera = part
+
+    # 3. Facultad
     titulos = " ".join(get_all_meta_values(["dc.title", "citation_title"]))
-    materias = " ".join(
-        get_all_meta_values(["dc.subject", "dc.description.abstract"])
-    )
+    materias = " ".join(get_all_meta_values(["dc.subject", "dc.description.abstract"]))
     texto_inferencia = normalizar_texto(f"{titulos} {materias}")
 
-    candidatos_facultad = get_all_meta_values([
+    candidatos_facultad = []
+    if pub_facultad:
+        candidatos_facultad.append(pub_facultad)
+    if owning_coll_name:
+        candidatos_facultad.append(owning_coll_name)
+
+    candidatos_facultad.extend(get_all_meta_values([
         "thesis.degree.grantor",
         "dc.publisher",
         "dc.department",
         "dc.contributor.department",
         "dc.publisher.department",
         "dc.degree.grantor",
-        "citation_publisher",
-    ])
-    if owning_coll_name:
-        candidatos_facultad.append(owning_coll_name)
+    ]))
 
     facultad_detectada = ""
     for cand in candidatos_facultad:
@@ -681,8 +710,10 @@ def extraer_metadatos_dspace(url_input):
                 facultad_detectada = fac_oficial
                 break
 
-    # 3. Carrera / Programa
+    # 4. Carrera / Programa
     candidatos_carrera = []
+    if pub_carrera:
+        candidatos_carrera.append(pub_carrera)
     if owning_coll_name:
         candidatos_carrera.append(owning_coll_name)
 
@@ -724,7 +755,7 @@ def extraer_metadatos_dspace(url_input):
     if not carrera_detectada and candidatos_carrera:
         carrera_detectada = candidatos_carrera[0]
 
-    # 4. Handle Oficial
+    # 5. Handle Oficial
     uri_items = metadata.get("dc.identifier.uri", [])
     for uri in uri_items:
         val_uri = uri.get("value", "") if isinstance(uri, dict) else str(uri)
@@ -746,6 +777,7 @@ def extraer_metadatos_dspace(url_input):
         "carrera": carrera_detectada,
         "handle": handle_official,
     }
+
 
 # ------------------------------------------------------------------
 # GENERADOR DEL DOCUMENTO WORD (.DOCX) - FORMATO INTACTO
@@ -850,23 +882,7 @@ def crear_documento_word(datos):
     if not fac_clean.lower().startswith("facultad de") and fac_clean:
         fac_clean = f"Facultad de {fac_clean}"
 
-    # Sanitización profunda del nombre del programa/carrera
     carr_clean = str(datos["carrera"]).strip()
-
-    # 1. Eliminar menciones explícitas a la universidad
-    carr_clean = re.sub(
-        r"^(Universidad de Cuenca[\.\,\-]?\s*)", "", carr_clean, flags=re.I
-    ).strip()
-
-    # 2. Eliminar TODOS los prefijos repetidos al inicio (ej. "Maestría en Maestría en...")
-    patron_prefijos = r"^(carrera de|programa de maestría en|programa de maestria en|maestría en|maestria en|programa de doctorado en|doctorado en|programa de|msc\.|ing\.|lic\.)\s*"
-    while re.search(patron_prefijos, carr_clean, flags=re.I):
-        carr_clean = re.sub(patron_prefijos, "", carr_clean, flags=re.I).strip()
-
-    # 3. Eliminar muletillas y prefijos duplicados al final (ej. "...Maestria en")
-    patron_sufijos = r"\s*(carrera de|programa de|maestría en|maestria en|doctorado en)$"
-    while re.search(patron_sufijos, carr_clean, flags=re.I):
-        carr_clean = re.sub(patron_sufijos, "", carr_clean, flags=re.I).strip()
 
     tipo = datos.get("tipo_estudio", "Pregrado")
 
@@ -887,19 +903,17 @@ def crear_documento_word(datos):
     r_ced.font.name = "Arial"
     r_ced.font.bold = True
 
-    # Ensamblaje limpio según modalidad
+    # Redacción limpia según modalidad
     if tipo == "Complexivo":
         texto_cert = (
             f", estudiante de la {fac_clean}, de la {carr_clean}, "
             "modalidad Examen Complexivo, no adeuda ningún bien, ni material bibliográfico en esta dependencia."
         )
     else:
-        if tipo == "Maestría":
-            prefix_carrera = "de la Maestría en"
-        elif tipo == "Doctorado":
-            prefix_carrera = "del Programa de Doctorado en"
+        if carr_clean.lower().startswith(("programa", "doctorado")):
+            prefix_carrera = "del"
         else:
-            prefix_carrera = "de la Carrera de"
+            prefix_carrera = "de la"
 
         texto_cert = (
             f", estudiante de la {fac_clean} {prefix_carrera} {carr_clean}, "
@@ -909,7 +923,6 @@ def crear_documento_word(datos):
     r_c3 = p_cuerpo.add_run(texto_cert)
     r_c3.font.name = "Arial"
 
-    
     # FECHA (UTC-5 Ecuador)
     p_fecha = doc.add_paragraph()
     p_fecha.alignment = WD_ALIGN_PARAGRAPH.RIGHT
@@ -1011,7 +1024,7 @@ if tipo_estudio != "Complexivo":
 
     url_input = st.text_input(
         "Handle de DSpace:",
-        placeholder="Ej: https://dspace.ucuenca.edu.ec/handle/123456789/49197 o https://dspace.ucuenca.edu.ec/items/...",
+        placeholder="Ej: https://dspace.ucuenca.edu.ec/handle/123456789/49693 o https://dspace.ucuenca.edu.ec/items/...",
         key="handle_input",
     )
 
