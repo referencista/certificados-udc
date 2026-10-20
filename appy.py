@@ -17,7 +17,7 @@ import requests
 import streamlit as st
 import urllib3
 
-# Desactivar advertencias SSL
+# Desactivar advertencias SSL por certificados intermedios institucionales
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ------------------------------------------------------------------
@@ -444,7 +444,7 @@ def formatear_carrera_espanol(texto):
 def extraer_metadatos_dspace(url_input):
     url_clean = url_input.strip()
 
-    # Identificar UUID o Handle
+    # Identificar UUID (8-4-4-4-12 hex) o Handle (123456789/xxx)
     match_uuid = re.search(
         r"([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})",
         url_clean,
@@ -457,7 +457,6 @@ def extraer_metadatos_dspace(url_input):
     uuid_id = match_uuid.group(1) if match_uuid else None
     handle_id = match_handle.group(1).strip() if match_handle else None
 
-    # Reducir barra final si existe en el Handle
     if handle_id and handle_id.endswith("/"):
         handle_id = handle_id[:-1]
 
@@ -467,7 +466,7 @@ def extraer_metadatos_dspace(url_input):
         "https://dspace.ucuenca.edu.ec/api",
     ]
 
-    # Cabeceras navegables de alta fidelidad para evitar bloqueos por firewall
+    # Cabeceras navegables completas para superar bloqueos WAF/Fortinet
     headers = {
         "Accept": "application/json, text/html, application/xhtml+xml, */*",
         "Accept-Language": "es-EC,es;q=0.9,en-US;q=0.8,en;q=0.7",
@@ -490,16 +489,25 @@ def extraer_metadatos_dspace(url_input):
     data = None
     exito_extraccion = False
 
-    # --- MÉTODO 1: DSPACE REST API 9.3 ---
+    # --- MÉTODO 1: DSPACE REST API 9.3 EN 2 PASOS ---
     if not uuid_id and handle_id:
         for base in base_apis:
-            for pid_param in [handle_id, f"handle/{handle_id}", f"http://hdl.handle.net/{handle_id}"]:
+            for pid_param in [
+                handle_id,
+                f"handle/{handle_id}",
+                f"http://hdl.handle.net/{handle_id}",
+            ]:
                 try:
                     pid_url = f"{base}/pid/find?id={pid_param}"
                     resp_pid = requests.get(
-                        pid_url, headers=headers, timeout=8, verify=False, allow_redirects=True
+                        pid_url,
+                        headers=headers,
+                        timeout=8,
+                        verify=False,
+                        allow_redirects=True,
                     )
 
+                    # Intentar resolver UUID desde la URL redirigida
                     m_u = re.search(
                         r"([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})",
                         resp_pid.url,
@@ -515,7 +523,11 @@ def extraer_metadatos_dspace(url_input):
                             if isinstance(d_pid, dict):
                                 uuid_id = d_pid.get("uuid") or d_pid.get("id")
                                 if not uuid_id and "_links" in d_pid:
-                                    href = d_pid["_links"].get("self", {}).get("href", "")
+                                    href = (
+                                        d_pid["_links"]
+                                        .get("self", {})
+                                        .get("href", "")
+                                    )
                                     m_u2 = re.search(
                                         r"([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})",
                                         href,
@@ -538,7 +550,9 @@ def extraer_metadatos_dspace(url_input):
     if uuid_id and not data:
         for base in base_apis:
             try:
-                item_url = f"{base}/core/items/{uuid_id}?embed=owningCollection"
+                item_url = (
+                    f"{base}/core/items/{uuid_id}?embed=owningCollection"
+                )
                 resp_item = requests.get(
                     item_url, headers=headers, timeout=8, verify=False
                 )
@@ -564,14 +578,16 @@ def extraer_metadatos_dspace(url_input):
         if metadata:
             exito_extraccion = True
 
-    # --- MÉTODO 2: PROTOCOLO OAI-PMH ---
+    # --- MÉTODO 2: PROTOCOLO OAI-PMH (NATIVO DSPACE) ---
     if not exito_extraccion and handle_id:
         try:
             oai_url = (
                 f"https://dspace.ucuenca.edu.ec/oai/request?verb=GetRecord&"
                 f"identifier=oai:dspace.ucuenca.edu.ec:{handle_id}&metadataPrefix=oai_dc"
             )
-            resp_oai = requests.get(oai_url, headers=headers, timeout=8, verify=False)
+            resp_oai = requests.get(
+                oai_url, headers=headers, timeout=8, verify=False
+            )
             if resp_oai.status_code == 200 and "<OAI-PMH" in resp_oai.text:
                 root = ET.fromstring(resp_oai.text)
                 ns = {
@@ -582,16 +598,24 @@ def extraer_metadatos_dspace(url_input):
                 meta_oai = {}
                 for creator in root.findall(".//dc:creator", ns):
                     if creator.text:
-                        meta_oai.setdefault("dc.contributor.author", []).append({"value": creator.text.strip()})
+                        meta_oai.setdefault(
+                            "dc.contributor.author", []
+                        ).append({"value": creator.text.strip()})
                 for pub in root.findall(".//dc:publisher", ns):
                     if pub.text:
-                        meta_oai.setdefault("dc.publisher", []).append({"value": pub.text.strip()})
+                        meta_oai.setdefault("dc.publisher", []).append(
+                            {"value": pub.text.strip()}
+                        )
                 for t in root.findall(".//dc:title", ns):
                     if t.text:
-                        meta_oai.setdefault("dc.title", []).append({"value": t.text.strip()})
+                        meta_oai.setdefault("dc.title", []).append(
+                            {"value": t.text.strip()}
+                        )
                 for subj in root.findall(".//dc:subject", ns):
                     if subj.text:
-                        meta_oai.setdefault("dc.subject", []).append({"value": subj.text.strip()})
+                        meta_oai.setdefault("dc.subject", []).append(
+                            {"value": subj.text.strip()}
+                        )
 
                 if meta_oai:
                     metadata = meta_oai
@@ -599,17 +623,25 @@ def extraer_metadatos_dspace(url_input):
         except Exception:
             pass
 
-    # --- MÉTODO 3: WEB SCRAPING HTML ---
+    # --- MÉTODO 3: WEB SCRAPING HTML SSR ---
     if not exito_extraccion:
         target_urls = [url_clean]
         if handle_id:
-            target_urls.append(f"https://dspace.ucuenca.edu.ec/handle/{handle_id}?show=full")
-            target_urls.append(f"https://dspace.ucuenca.edu.ec/handle/{handle_id}")
+            target_urls.append(
+                f"https://dspace.ucuenca.edu.ec/handle/{handle_id}?show=full"
+            )
+            target_urls.append(
+                f"https://dspace.ucuenca.edu.ec/handle/{handle_id}"
+            )
 
         for t_url in target_urls:
             try:
                 resp_html = requests.get(
-                    t_url, headers=headers, timeout=8, verify=False, allow_redirects=True
+                    t_url,
+                    headers=headers,
+                    timeout=8,
+                    verify=False,
+                    allow_redirects=True,
                 )
                 if resp_html.status_code == 200:
                     html_text = resp_html.text
@@ -618,9 +650,13 @@ def extraer_metadatos_dspace(url_input):
                     tags = re.findall(r"<meta\s+([^>]+)>", html_text, re.I)
                     for tag_attr in tags:
                         name_m = re.search(
-                            r'(?:name|property|itemprop)=["\']([^"\']+)["\']', tag_attr, re.I
+                            r'(?:name|property|itemprop)=["\']([^"\']+)["\']',
+                            tag_attr,
+                            re.I,
                         )
-                        content_m = re.search(r'content=["\']([^"\']+)["\']', tag_attr, re.I)
+                        content_m = re.search(
+                            r'content=["\']([^"\']+)["\']', tag_attr, re.I
+                        )
                         if name_m and content_m:
                             k = name_m.group(1).strip()
                             v = content_m.group(1).strip()
@@ -647,14 +683,18 @@ def extraer_metadatos_dspace(url_input):
                         except Exception:
                             pass
 
-                    if meta_dict.get("citation_author") or meta_dict.get("dc.contributor.author") or meta_dict.get("DC.creator"):
+                    if (
+                        meta_dict.get("citation_author")
+                        or meta_dict.get("dc.contributor.author")
+                        or meta_dict.get("DC.creator")
+                    ):
                         metadata = meta_dict
                         exito_extraccion = True
                         break
             except Exception:
                 continue
 
-    # --- EXTRAER Y PROCESAR METADATOS FINALES ---
+    # --- EXTRAER Y ENSAMBLAR CAMPOS FINALES ---
     def get_all_meta_values(keys_list):
         if isinstance(keys_list, str):
             keys_list = [keys_list]
@@ -687,7 +727,11 @@ def extraer_metadatos_dspace(url_input):
             autores_formateados.append(a_clean)
 
     # 2. Análisis de dc.publisher (Ej: "Universidad de Cuenca. Facultad de ... Carrera de ...")
-    publishers = get_all_meta_values(["dc.publisher", "thesis.degree.grantor", "citation_publisher"])
+    publishers = get_all_meta_values([
+        "dc.publisher",
+        "thesis.degree.grantor",
+        "citation_publisher",
+    ])
     pub_facultad, pub_carrera = "", ""
     for pub_text in publishers:
         parts = [p.strip() for p in pub_text.split(".") if p.strip()]
@@ -695,12 +739,26 @@ def extraer_metadatos_dspace(url_input):
             p_norm = normalizar_texto(part)
             if "facultad de" in p_norm and not pub_facultad:
                 pub_facultad = part
-            elif any(k in p_norm for k in ["carrera de", "maestria en", "maestría en", "programa de", "doctorado en"]) and not pub_carrera:
+            elif (
+                any(
+                    k in p_norm
+                    for k in [
+                        "carrera de",
+                        "maestria en",
+                        "maestría en",
+                        "programa de",
+                        "doctorado en",
+                    ]
+                )
+                and not pub_carrera
+            ):
                 pub_carrera = part
 
     # 3. Facultad
     titulos = " ".join(get_all_meta_values(["dc.title", "citation_title"]))
-    materias = " ".join(get_all_meta_values(["dc.subject", "dc.description.abstract"]))
+    materias = " ".join(
+        get_all_meta_values(["dc.subject", "dc.description.abstract"])
+    )
     texto_inferencia = normalizar_texto(f"{titulos} {materias}")
 
     candidatos_facultad = []
@@ -709,14 +767,16 @@ def extraer_metadatos_dspace(url_input):
     if owning_coll_name:
         candidatos_facultad.append(owning_coll_name)
 
-    candidatos_facultad.extend(get_all_meta_values([
-        "thesis.degree.grantor",
-        "dc.publisher",
-        "dc.department",
-        "dc.contributor.department",
-        "dc.publisher.department",
-        "dc.degree.grantor",
-    ]))
+    candidatos_facultad.extend(
+        get_all_meta_values([
+            "thesis.degree.grantor",
+            "dc.publisher",
+            "dc.department",
+            "dc.contributor.department",
+            "dc.publisher.department",
+            "dc.degree.grantor",
+        ])
+    )
 
     facultad_detectada = ""
     for cand in candidatos_facultad:
@@ -735,7 +795,7 @@ def extraer_metadatos_dspace(url_input):
                 facultad_detectada = fac_oficial
                 break
 
-    # 4. Carrera / Programa
+    # 4. Carrera / Programa (Excluyendo dc.subject para evitar palabras clave)
     candidatos_carrera = []
     if pub_carrera:
         candidatos_carrera.append(pub_carrera)
@@ -760,12 +820,6 @@ def extraer_metadatos_dspace(url_input):
             r"^(Universidad de Cuenca[\.\,\-]?\s*|Facultad de [^.]+\.\s*)",
             "",
             cand,
-            flags=re.I,
-        ).strip()
-        cand_clean = re.sub(
-            r"^(carrera de|programa de|maestría en|maestria en|doctorado en|msc\.|ing\.|lic\.)\s*",
-            "",
-            cand_clean,
             flags=re.I,
         ).strip()
 
@@ -812,25 +866,25 @@ def crear_documento_word(datos):
     doc = docx.Document()
 
     # 1. Modificar el proofState existente a 'dirty' para forzar autocorrector en Word
-    proof_state = doc.settings.element.find(qn('w:proofState'))
+    proof_state = doc.settings.element.find(qn("w:proofState"))
     if proof_state is not None:
-        proof_state.set(qn('w:spelling'), 'dirty')
-        proof_state.set(qn('w:grammar'), 'dirty')
+        proof_state.set(qn("w:spelling"), "dirty")
+        proof_state.set(qn("w:grammar"), "dirty")
     else:
-        proof = OxmlElement('w:proofState')
-        proof.set(qn('w:spelling'), 'dirty')
-        proof.set(qn('w:grammar'), 'dirty')
+        proof = OxmlElement("w:proofState")
+        proof.set(qn("w:spelling"), "dirty")
+        proof.set(qn("w:grammar"), "dirty")
         doc.settings.element.append(proof)
 
     # 2. Configurar o actualizar el idioma a Español (Ecuador)
     style_normal = doc.styles["Normal"]
     rPr = style_normal.element.get_or_add_rPr()
-    existing_lang = rPr.find(qn('w:lang'))
+    existing_lang = rPr.find(qn("w:lang"))
     if existing_lang is not None:
-        existing_lang.set(qn('w:val'), 'es-EC')
+        existing_lang.set(qn("w:val"), "es-EC")
     else:
-        lang = OxmlElement('w:lang')
-        lang.set(qn('w:val'), 'es-EC')
+        lang = OxmlElement("w:lang")
+        lang.set(qn("w:val"), "es-EC")
         rPr.append(lang)
 
     # Estilo global Arial
@@ -939,7 +993,7 @@ def crear_documento_word(datos):
         if carr_clean.lower().startswith(("programa", "doctorado")):
             prefix_carrera = "del"
         else:
-            prefix_carrera = "de la Carrera de"
+            prefix_carrera = "de la"
 
         texto_cert = (
             f", estudiante de la {fac_clean} {prefix_carrera} {carr_clean}, "
@@ -956,7 +1010,7 @@ def crear_documento_word(datos):
 
     tz_ecuador = timezone(timedelta(hours=-5))
     hoy = datetime.now(tz_ecuador)
-    
+
     r_fecha = p_fecha.add_run(
         f"Cuenca, {hoy.day} de {MESES[hoy.month - 1]} de {hoy.year}"
     )
@@ -979,7 +1033,9 @@ def crear_documento_word(datos):
     r_f1.font.name = "Arial"
     r_f1.font.bold = True
 
-    r_f2 = p_firma.add_run(f'{datos["ref_cargo"]}\nCDR "Juan Bautista Vázquez"')
+    r_f2 = p_firma.add_run(
+        f'{datos["ref_cargo"]}\nCDR "Juan Bautista Vázquez"'
+    )
     r_f2.font.name = "Arial"
 
     # ENLACE DSPACE
@@ -991,7 +1047,9 @@ def crear_documento_word(datos):
     r_l1.font.name = "Arial"
     r_l1.font.bold = True
 
-    valor_link = "Examen Complexivo" if tipo == "Complexivo" else datos.get("handle", "")
+    valor_link = (
+        "Examen Complexivo" if tipo == "Complexivo" else datos.get("handle", "")
+    )
     r_h = p_link.add_run(valor_link)
     r_h.font.name = "Arial"
     r_h.font.underline = True
@@ -1021,7 +1079,7 @@ col_tipo, col_ref = st.columns([2, 2])
 with col_tipo:
     tipo_estudio = st.selectbox(
         "Tipo de Titulación / Proceso:",
-        ["Pregrado", "Maestría", "Doctorado", "Complexivo"]
+        ["Pregrado", "Maestría", "Doctorado", "Complexivo"],
     )
 
 with col_ref:
@@ -1050,7 +1108,10 @@ if tipo_estudio != "Complexivo":
 
     url_input = st.text_input(
         "Handle o URL de DSpace:",
-        placeholder="Ej: https://dspace.ucuenca.edu.ec/handle/123456789/49693 o 123456789/49693",
+        placeholder=(
+            "Ej: https://dspace.ucuenca.edu.ec/handle/123456789/49693 o"
+            " 123456789/49693"
+        ),
         key="handle_input",
     )
 
@@ -1058,12 +1119,15 @@ if tipo_estudio != "Complexivo":
 
     with col_btn1:
         btn_procesar = st.button(
-            "🔍 Consultar DSpace y Generar Documento(s)", use_container_width=True
+            "🔍 Consultar DSpace y Generar Documento(s)",
+            use_container_width=True,
         )
 
     with col_btn2:
         btn_limpiar = st.button(
-            "🧹 Nueva Búsqueda", use_container_width=True, on_click=limpiar_busqueda
+            "🧹 Nueva Búsqueda",
+            use_container_width=True,
+            on_click=limpiar_busqueda,
         )
 
     if btn_procesar or "datos_cargados" in st.session_state:
@@ -1072,19 +1136,25 @@ if tipo_estudio != "Complexivo":
                 st.warning("⚠️ Por favor ingresa el Handle de DSpace.")
                 st.stop()
             st.session_state.pop("datos_cargados", None)
-            
-            with st.spinner("Conectando con el repositorio DSpace de la UCuenca..."):
+
+            with st.spinner(
+                "Conectando con el repositorio DSpace de la UCuenca..."
+            ):
                 meta = extraer_metadatos_dspace(url_input)
                 st.session_state["datos_cargados"] = meta
-                st.session_state["carrera_input"] = formatear_carrera_espanol(meta["carrera"])
+                st.session_state["carrera_input"] = formatear_carrera_espanol(
+                    meta["carrera"]
+                )
 
         meta = st.session_state["datos_cargados"]
 
         if not meta.get("exito", False):
             st.warning(
-                "⚠️ **Aviso de conexión:** No se pudieron extraer los datos automáticamente desde el servidor DSpace de la UCuenca "
-                "(posible bloqueo temporal de firewall o mantenimiento del servidor de la universidad). "
-                "**Por favor, verifique o ingrese manualmente el nombre del estudiante y la carrera a continuación.**"
+                "⚠️ **Aviso de conexión:** No se pudieron extraer los datos"
+                " automáticamente desde el servidor DSpace de la UCuenca"
+                " (posible bloqueo de firewall/WAF hacia la nube de Streamlit)."
+                " **Puede ingresar o corregir los datos manualmente a"
+                " continuación.**"
             )
 
         st.markdown("---")
@@ -1113,7 +1183,9 @@ if tipo_estudio != "Complexivo":
                 on_change=auto_formatear_carrera_cb,
             )
 
-        st.markdown(f"**Estudiantes / Autores encontrados ({len(meta['autores'])})**")
+        st.markdown(
+            f"**Estudiantes / Autores encontrados ({len(meta['autores'])})**"
+        )
 
         certificados_generados = []
 
@@ -1122,7 +1194,9 @@ if tipo_estudio != "Complexivo":
                 f"🎓 Estudiante #{idx}: {autor_nombre}", expanded=True
             ):
                 nom_est = st.text_input(
-                    f"Nombre Estudiante #{idx}:", value=autor_nombre, key=f"nom_{idx}"
+                    f"Nombre Estudiante #{idx}:",
+                    value=autor_nombre,
+                    key=f"nom_{idx}",
                 )
 
                 payload = {
@@ -1174,24 +1248,39 @@ if tipo_estudio != "Complexivo":
 # ------------------------------------------------------------------
 else:
     st.markdown("#### 1. Parámetros de Examen Complexivo")
-    
+
     modo_complexivo = st.radio(
         "Seleccione la modalidad de generación:",
-        ["👤 Ingreso Manual (1 Estudiante)", "📂 Carga Masiva desde Excel (Listado)"],
-        horizontal=True
+        [
+            "👤 Ingreso Manual (1 Estudiante)",
+            "📂 Carga Masiva desde Excel (Listado)",
+        ],
+        horizontal=True,
     )
 
     st.markdown("---")
 
     if "Ingreso Manual" in modo_complexivo:
-        st.info("ℹ️ Ingrese los datos del estudiante de examen complexivo para generar su certificado individual.")
-        
+        st.info(
+            "ℹ️ Ingrese los datos del estudiante de examen complexivo para"
+            " generar su certificado individual."
+        )
+
         col_m1, col_m2 = st.columns(2)
         with col_m1:
-            nom_comp = st.text_input("Nombres y Apellidos Completos:", value="ZHIZHPON GUACHICHULLCA BYRON GEOVANNY")
-            carr_comp = st.text_input("Carrera o Programa:", value="PEDAGOGIA DE LAS ARTES Y LAS HUMANIDADES")
+            nom_comp = st.text_input(
+                "Nombres y Apellidos Completos:",
+                value="ZHIZHPON GUACHICHULLCA BYRON GEOVANNY",
+            )
+            carr_comp = st.text_input(
+                "Carrera o Programa:",
+                value="PEDAGOGIA DE LAS ARTES Y LAS HUMANIDADES",
+            )
         with col_m2:
-            fac_comp = st.text_input("Facultad:", value="FILOSOFIA, LETRAS Y CIENCIAS DE LA EDUCACION")
+            fac_comp = st.text_input(
+                "Facultad:",
+                value="FILOSOFIA, LETRAS Y CIENCIAS DE LA EDUCACION",
+            )
 
         payload_manual = {
             "autor": nom_comp.strip().upper(),
@@ -1204,38 +1293,54 @@ else:
         }
 
         buf_manual = crear_documento_word(payload_manual)
-        
+
         st.download_button(
             label="📄 Descargar Certificado Word (.docx)",
             data=buf_manual,
-            file_name=f"Certificado_Complexivo_{nom_comp.replace(' ', '_')}.docx",
-            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            key="btn_complexivo_manual"
+            file_name=(
+                f"Certificado_Complexivo_{nom_comp.replace(' ', '_')}.docx"
+            ),
+            mime=(
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            ),
+            key="btn_complexivo_manual",
         )
 
     else:
-        st.info("📂 Cargue el archivo Excel con el listado de Exámenes Complexivos para generar los certificados de los estudiantes autorizados.")
-        
+        st.info(
+            "📂 Cargue el archivo Excel con el listado de Exámenes Complexivos"
+            " para generar los certificados de los estudiantes autorizados."
+        )
+
         archivo_excel = st.file_uploader(
-            "Seleccione el archivo Excel (.xlsx, .xls):", 
-            type=["xlsx", "xls"]
+            "Seleccione el archivo Excel (.xlsx, .xls):", type=["xlsx", "xls"]
         )
 
         if archivo_excel is not None:
             try:
                 df_raw = pd.read_excel(archivo_excel, header=None)
-                
+
                 header_idx = 0
                 for idx, row in df_raw.iterrows():
-                    row_text = " ".join([str(cell).lower() for cell in row.values if pd.notna(cell)])
-                    if "facultad" in row_text or "apellidos" in row_text or "nombres" in row_text:
+                    row_text = " ".join(
+                        [str(cell).lower() for cell in row.values if pd.notna(cell)]
+                    )
+                    if (
+                        "facultad" in row_text
+                        or "apellidos" in row_text
+                        or "nombres" in row_text
+                    ):
                         header_idx = idx
                         break
 
                 df = pd.read_excel(archivo_excel, header=header_idx)
-                
+
                 def norm_col(texto):
-                    txt = unicodedata.normalize("NFD", str(texto)).encode("ascii", "ignore").decode("utf-8")
+                    txt = (
+                        unicodedata.normalize("NFD", str(texto))
+                        .encode("ascii", "ignore")
+                        .decode("utf-8")
+                    )
                     return txt.strip().lower()
 
                 cols_dict = {norm_col(c): c for c in df.columns}
@@ -1247,46 +1352,88 @@ else:
                                 return orig_c
                     return None
 
-                col_fac = encontrar_columna(['facultad'])
-                col_carr = encontrar_columna(['carrera o maestria', 'carrera', 'programa'])
-                col_ape = encontrar_columna(['apellidos', 'apellido'])
-                col_nom = encontrar_columna(['nombres', 'nombre'])
-                col_aut = encontrar_columna(['autorizacion', 'autoriz'])
+                col_fac = encontrar_columna(["facultad"])
+                col_carr = encontrar_columna(
+                    ["carrera o maestria", "carrera", "programa"]
+                )
+                col_ape = encontrar_columna(["apellidos", "apellido"])
+                col_nom = encontrar_columna(["nombres", "nombre"])
+                col_aut = encontrar_columna(["autorizacion", "autoriz"])
 
                 faltantes = []
-                if not col_fac: faltantes.append("Facultad")
-                if not col_carr: faltantes.append("Carrera o Maestría")
-                if not col_ape: faltantes.append("Apellidos")
-                if not col_nom: faltantes.append("Nombres")
-                if not col_aut: faltantes.append("Autorización")
+                if not col_fac:
+                    faltantes.append("Facultad")
+                if not col_carr:
+                    faltantes.append("Carrera o Maestría")
+                if not col_ape:
+                    faltantes.append("Apellidos")
+                if not col_nom:
+                    faltantes.append("Nombres")
+                if not col_aut:
+                    faltantes.append("Autorización")
 
                 if faltantes:
-                    st.error(f"❌ No se pudieron identificar las siguientes columnas: **{', '.join(faltantes)}**.")
-                    st.warning(f"📋 **Columnas detectadas en la fila {header_idx + 1} de tu Excel:**\n`{list(df.columns)}`")
+                    st.error(
+                        "❌ No se pudieron identificar las siguientes columnas:"
+                        f" **{', '.join(faltantes)}**."
+                    )
+                    st.warning(
+                        "📋 **Columnas detectadas en la fila"
+                        f" {header_idx + 1} de tu Excel:**\n`{list(df.columns)}`"
+                    )
                 else:
                     df = df.dropna(how="all")
-                    df_filtrado = df[df[col_aut].astype(str).str.strip().str.upper() == 'AUTORIZADO'].copy()
+                    df_filtrado = df[
+                        df[col_aut].astype(str).str.strip().str.upper()
+                        == "AUTORIZADO"
+                    ].copy()
                     cant_autorizados = len(df_filtrado)
 
                     if cant_autorizados == 0:
-                        st.warning(f"⚠️ Se leyó el archivo correctamente (encabezado en fila {header_idx + 1}), pero no se encontraron filas con el valor 'AUTORIZADO' en la columna '{col_aut}'.")
+                        st.warning(
+                            "⚠️ Se leyó el archivo correctamente (encabezado en"
+                            f" fila {header_idx + 1}), pero no se encontraron"
+                            " filas con el valor 'AUTORIZADO' en la columna"
+                            f" '{col_aut}'."
+                        )
                     else:
-                        st.success(f"✅ Se encontraron **{cant_autorizados}** estudiantes con estado **AUTORIZADO** (encabezado detectado en la fila {header_idx + 1}).")
-
-                        st.dataframe(
-                            df_filtrado[[col_fac, col_carr, col_ape, col_nom, col_aut]],
-                            use_container_width=True
+                        st.success(
+                            f"✅ Se encontraron **{cant_autorizados}**"
+                            " estudiantes con estado **AUTORIZADO** (encabezado"
+                            f" detectado en la fila {header_idx + 1})."
                         )
 
-                        if st.button("⚡ Generar Todos los Certificados (.ZIP)", use_container_width=True):
-                            with st.spinner("Procesando certificados y empaquetando en archivo ZIP..."):
+                        st.dataframe(
+                            df_filtrado[
+                                [col_fac, col_carr, col_ape, col_nom, col_aut]
+                            ],
+                            use_container_width=True,
+                        )
+
+                        if st.button(
+                            "⚡ Generar Todos los Certificados (.ZIP)",
+                            use_container_width=True,
+                        ):
+                            with st.spinner(
+                                "Procesando certificados y empaquetando en"
+                                " archivo ZIP..."
+                            ):
                                 zip_buffer = io.BytesIO()
 
-                                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                                with zipfile.ZipFile(
+                                    zip_buffer, "w", zipfile.ZIP_DEFLATED
+                                ) as zf:
                                     for _, row in df_filtrado.iterrows():
-                                        nombre_completo = f"{row[col_ape]} {row[col_nom]}".strip().upper()
-                                        facultad_val = str(row[col_fac]).strip()
-                                        carrera_val = formatear_carrera_espanol(str(row[col_carr]).strip())
+                                        nombre_completo = (
+                                            f"{row[col_ape]}"
+                                            f" {row[col_nom]}".strip().upper()
+                                        )
+                                        facultad_val = str(
+                                            row[col_fac]
+                                        ).strip()
+                                        carrera_val = formatear_carrera_espanol(
+                                            str(row[col_carr]).strip()
+                                        )
 
                                         payload_excel = {
                                             "autor": nombre_completo,
@@ -1298,22 +1445,29 @@ else:
                                             "ref_cargo": ref_info["cargo"],
                                         }
 
-                                        doc_buf = crear_documento_word(payload_excel)
+                                        doc_buf = crear_documento_word(
+                                            payload_excel
+                                        )
                                         zf.writestr(
-                                            f"Certificado_{nombre_completo.replace(' ', '_')}.docx",
+                                            "Certificado_"
+                                            f"{nombre_completo.replace(' ', '_')}.docx",
                                             doc_buf.getvalue(),
                                         )
 
                                 zip_buffer.seek(0)
                                 st.download_button(
                                     label=(
-                                        "📦 Descargar Certificados Complexivos (.ZIP)"
-                                        f" ({cant_autorizados} archivos)"
+                                        "📦 Descargar Certificados Complexivos"
+                                        f" (.ZIP) ({cant_autorizados} archivos)"
                                     ),
                                     data=zip_buffer,
-                                    file_name="Certificados_Complexivo_UCuenca.zip",
+                                    file_name=(
+                                        "Certificados_Complexivo_UCuenca.zip"
+                                    ),
                                     mime="application/zip",
                                     key="btn_dl_complexivo_zip",
                                 )
             except Exception as e:
-                st.error(f"❌ Ocurrió un error al procesar el archivo Excel: {e}")
+                st.error(
+                    f"❌ Ocurrió un error al procesar el archivo Excel: {e}"
+                )
