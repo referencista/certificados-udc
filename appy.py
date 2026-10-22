@@ -993,7 +993,7 @@ def crear_documento_word(datos):
         if carr_clean.lower().startswith(("programa", "doctorado")):
             prefix_carrera = "del"
         else:
-            prefix_carrera = "de la carrera"
+            prefix_carrera = "de la carrera de "
 
         texto_cert = (
             f", estudiante de la {fac_clean} {prefix_carrera} {carr_clean}, "
