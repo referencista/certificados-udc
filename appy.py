@@ -997,23 +997,44 @@ def crear_documento_word(datos):
     r_ced.font.name = "Arial"
     r_ced.font.bold = True
 
+   
     # Redacción limpia según modalidad
+    # NUEVA LÓGICA DINÁMICA SEGÚN TIPO DE TITULACIÓN:
     if tipo == "Complexivo":
         texto_cert = (
             f", estudiante de la {fac_clean}, de la {carr_clean}, "
             "modalidad Examen Complexivo, no adeuda ningún bien, ni material bibliográfico en esta dependencia."
         )
     else:
-        if carr_clean.lower().startswith(("programa", "doctorado")):
-            prefix_carrera = "del"
-        else:
-            prefix_carrera = "de la carrera de "
+        carr_lower = carr_clean.lower()
+
+        if tipo == "Maestría":
+            if carr_lower.startswith(("maestría", "maestria")):
+                prefix_carrera = "de la "
+            elif carr_lower.startswith("programa"):
+                prefix_carrera = "del "
+            else:
+                prefix_carrera = "de la Maestría en "
+
+        elif tipo == "Doctorado":
+            if carr_lower.startswith("doctorado"):
+                prefix_carrera = "del "
+            elif carr_lower.startswith("programa"):
+                prefix_carrera = "del "
+            else:
+                prefix_carrera = "del Doctorado en "
+
+        else:  # Pregrado
+            if carr_lower.startswith("carrera"):
+                prefix_carrera = "de la "
+            else:
+                prefix_carrera = "de la carrera de "
 
         texto_cert = (
-            f", estudiante de la {fac_clean} {prefix_carrera} {carr_clean}, "
+            f", estudiante de la {fac_clean} {prefix_carrera}{carr_clean}, "
             "no adeuda ningún bien, ni material bibliográfico en esta dependencia."
         )
-
+    
     r_c3 = p_cuerpo.add_run(texto_cert)
     r_c3.font.name = "Arial"
 
