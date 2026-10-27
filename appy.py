@@ -111,16 +111,16 @@ REFERENCISTAS_POR_CAMPUS = {
         {"nombre": "PAOLA DEL ROCIO AMAYA ARCE", "cargo": "Bibliotecario 2"},
         {"nombre": "PATRICIA MARIBEL DUCHI PESÁNTEZ", "cargo": "Bibliotecario 2"},
         {"nombre": "WILMAN GONZALO TANDAZO GUEVARA", "cargo": "Bibliotecario 2"},
-        {"nombre": "DIANA LEÓN", "cargo": "Bibliotecario 2"},
+        {"nombre": "DIANA ALEXANDRA LEÓN BRAVO", "cargo": "Bibliotecario 2"},
     ],
     "Campus Paraíso": [
-        {"nombre": "DANI", "cargo": "Bibliotecario 2"},
+        {"nombre": "DANIEL RAMIRO CARRION ROMAN", "cargo": "Bibliotecario 2"},
         {"nombre": "ANDREA", "cargo": "Bibliotecario 2"},
         {"nombre": "XIMENA", "cargo": "Bibliotecario 2"},
     ],
     "Campus Yanuncay": [
-        {"nombre": "NUBE", "cargo": "Bibliotecario 2"},
-        {"nombre": "BLADIMIR", "cargo": "Bibliotecario 2"},
+        {"nombre": "NUBE DEL ROCIO SALTO MORQUECHO", "cargo": "Bibliotecario 2"},
+        {"nombre": "HECTOR BLADIMIR CABRERA RODRIGUEZ", "cargo": "Bibliotecario 2"},
         {"nombre": "LUIS", "cargo": "Bibliotecario 2"},
     ],
     "Campus Centro Histórico": [
