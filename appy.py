@@ -114,12 +114,12 @@ REFERENCISTAS_POR_CAMPUS = {
         {"nombre": "DIANA ALEXANDRA LEÓN BRAVO", "cargo": "Bibliotecario 2"},
     ],
     "Campus Paraíso": [
-        {"nombre": "DANIEL RAMIRO CARRION ROMAN", "cargo": "Bibliotecario 2"},
+        {"nombre": "DANIEL RAMIRO CARRIÓN ROMAN", "cargo": "Bibliotecario 2"},
         {"nombre": "VANESSA ALEXANDRA MORALES MARINO", "cargo": "Bibliotecario 2"},
     ],
     "Campus Yanuncay": [
         {"nombre": "NUBE DEL ROCIO SALTO MORQUECHO", "cargo": "Bibliotecario 2"},
-        {"nombre": "HECTOR BLADIMIR CABRERA RODRIGUEZ", "cargo": "Bibliotecario 2"},       
+        {"nombre": "HECTOR BLADIMIR CABRERA RODRÍGUEZ", "cargo": "Bibliotecario 2"},       
     ],
     "Campus Centro Histórico": [
         {"nombre": "DIANA MARLENE FAJARDO PASAN", "cargo": "Bibliotecario 2"},
@@ -1112,18 +1112,18 @@ col_campus, col_ref, col_tipo = st.columns([2, 2, 2])
 
 with col_campus:
     campus_sel = st.selectbox(
-        "Campus / Sede:",
+        "Campus:",
         list(REFERENCISTAS_POR_CAMPUS.keys()),
     )
 
 with col_ref:
     lista_ref_campus = REFERENCISTAS_POR_CAMPUS[campus_sel]
     nombres_ref = sorted([r["nombre"] for r in lista_ref_campus])
-    referencista_sel = st.selectbox("Referencista que firma:", nombres_ref)
+    referencista_sel = st.selectbox("Referencista:", nombres_ref)
 
 with col_tipo:
     tipo_estudio = st.selectbox(
-        "Tipo de Titulación / Proceso:",
+        "Tipo de Titulación:",
         ["Pregrado", "Maestría", "Doctorado", "Complexivo"],
     )
 
@@ -1148,7 +1148,7 @@ if tipo_estudio != "Complexivo":
         st.session_state.pop("carrera_input", None)
 
     url_input = st.text_input(
-        "Handle o URL de DSpace:",
+        "Handle de DSpace:",
         placeholder=(
             "Ej: https://dspace.ucuenca.edu.ec/handle/123456789/49693 o"
             " 123456789/49693"
@@ -1160,13 +1160,13 @@ if tipo_estudio != "Complexivo":
 
     with col_btn1:
         btn_procesar = st.button(
-            "🔍 Consultar DSpace y Generar Documento(s)",
+            "Consultar DSpace y Generar Documento(s)",
             use_container_width=True,
         )
 
     with col_btn2:
         btn_limpiar = st.button(
-            "🧹 Nueva Búsqueda",
+            "Nueva Búsqueda",
             use_container_width=True,
             on_click=limpiar_busqueda,
         )
