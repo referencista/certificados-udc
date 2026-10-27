@@ -96,23 +96,37 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
 # ------------------------------------------------------------------
-# LISTA OFICIAL DE REFERENCISTAS Y ESTRUCTURAS
+# LISTA OFICIAL DE REFERENCISTAS ORGANIZADOS POR CAMPUS
 # ------------------------------------------------------------------
-LISTA_REFERENCISTAS = [
-    {"nombre": "DORIS PATRICIA TENESACA CARDENAS", "cargo": "Bibliotecario 2"},
-    {"nombre": "ERIKA ELIZABETH IDROVO SALAZAR", "cargo": "Bibliotecario 2"},
-    {"nombre": "ERIKA SOFIA PEÑAFIEL VAZQUEZ", "cargo": "Bibliotecario 2"},
-    {
-        "nombre": "FRANCISCO TEODORO ASTUDILLO SAQUINAULA",
-        "cargo": "Bibliotecario 2",
-    },
-    {"nombre": "JENNY EULALIA PEREZ MEJIA", "cargo": "Bibliotecario 2"},
-    {"nombre": "JOANNA NOEMI MOGOLLÓN GUZMÁN", "cargo": "Bibliotecario 2"},
-    {"nombre": "PAOLA DEL ROCIO AMAYA ARCE", "cargo": "Bibliotecario 2"},
-    {"nombre": "PATRICIA MARIBEL DUCHI PESÁNTEZ", "cargo": "Bibliotecario 2"},
-    {"nombre": "WILMAN GONZALO TANDAZO GUEVARA", "cargo": "Bibliotecario 2"},
-]
+REFERENCISTAS_POR_CAMPUS = {
+    "Campus Central": [
+        {"nombre": "DORIS PATRICIA TENESACA CARDENAS", "cargo": "Bibliotecario 2"},
+        {"nombre": "ERIKA ELIZABETH IDROVO SALAZAR", "cargo": "Bibliotecario 2"},
+        {"nombre": "ERIKA SOFIA PEÑAFIEL VAZQUEZ", "cargo": "Bibliotecario 2"},
+        {"nombre": "FRANCISCO TEODORO ASTUDILLO SAQUINAULA", "cargo": "Bibliotecario 2"},
+        {"nombre": "JENNY EULALIA PEREZ MEJIA", "cargo": "Bibliotecario 2"},
+        {"nombre": "JHOANNA NOEMI MOGOLLÓN GUZMÁN", "cargo": "Bibliotecario 2"},
+        {"nombre": "PAOLA DEL ROCIO AMAYA ARCE", "cargo": "Bibliotecario 2"},
+        {"nombre": "PATRICIA MARIBEL DUCHI PESÁNTEZ", "cargo": "Bibliotecario 2"},
+        {"nombre": "WILMAN GONZALO TANDAZO GUEVARA", "cargo": "Bibliotecario 2"},
+        {"nombre": "DIANA LEÓN", "cargo": "Bibliotecario 2"},
+    ],
+    "Campus Paraíso": [
+        {"nombre": "DANI", "cargo": "Bibliotecario 2"},
+        {"nombre": "ANDREA", "cargo": "Bibliotecario 2"},
+        {"nombre": "XIMENA", "cargo": "Bibliotecario 2"},
+    ],
+    "Campus Yanuncay": [
+        {"nombre": "NUBE", "cargo": "Bibliotecario 2"},
+        {"nombre": "BLADIMIR", "cargo": "Bibliotecario 2"},
+        {"nombre": "LUIS", "cargo": "Bibliotecario 2"},
+    ],
+    "Campus Centro Histórico": [
+        {"nombre": "DIANA", "cargo": "Bibliotecario 2"},
+    ],
+}
 
 MESES = [
     "enero",
@@ -1072,9 +1086,21 @@ def crear_documento_word(datos):
 
 # ------------------------------------------------------------------
 # INTERFAZ PRINCIPAL EN STREAMLIT
+# NUEVO BLOQUE MULTI-CAMPUS
 # ------------------------------------------------------------------
+# NUEVO BLOQUE MULTI-CAMPUS:
+col_campus, col_ref, col_tipo = st.columns([2, 2, 2])
 
-col_tipo, col_ref = st.columns([2, 2])
+with col_campus:
+    campus_sel = st.selectbox(
+        "Campus / Sede:",
+        list(REFERENCISTAS_POR_CAMPUS.keys()),
+    )
+
+with col_ref:
+    lista_ref_campus = REFERENCISTAS_POR_CAMPUS[campus_sel]
+    nombres_ref = sorted([r["nombre"] for r in lista_ref_campus])
+    referencista_sel = st.selectbox("Referencista que firma:", nombres_ref)
 
 with col_tipo:
     tipo_estudio = st.selectbox(
@@ -1082,12 +1108,8 @@ with col_tipo:
         ["Pregrado", "Maestría", "Doctorado", "Complexivo"],
     )
 
-with col_ref:
-    nombres_ref = sorted([r["nombre"] for r in LISTA_REFERENCISTAS])
-    referencista_sel = st.selectbox("Referencista que firma:", nombres_ref)
-
 ref_info = next(
-    item for item in LISTA_REFERENCISTAS if item["nombre"] == referencista_sel
+    item for item in REFERENCISTAS_POR_CAMPUS[campus_sel] if item["nombre"] == referencista_sel
 )
 
 st.markdown("---")
