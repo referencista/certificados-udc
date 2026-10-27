@@ -971,8 +971,16 @@ def crear_documento_word(datos):
     fac_clean = re.sub(
         r"^(Universidad de Cuenca[\.\,\-]?\s*)", "", datos["facultad"], flags=re.I
     ).strip()
-    if not fac_clean.lower().startswith("facultad de") and fac_clean:
-        fac_clean = f"Facultad de {fac_clean}"
+
+    fac_norm = normalizar_texto(fac_clean)
+
+    # 1. Autocorrección y estandarización para UCuenca TEC (corrige errores de tipeo del Excel)
+    if any(k in fac_norm for k in ["unidad academica", "ucuenca tec", "salvador allende", "tenologica"]):
+        fac_clean = 'Unidad Académica de Formación Técnica y Tecnológica "Salvador Allende" UCuenca TEC.'
+
+    # 2. Si es otra dependencia y no empieza con 'facultad', 'unidad' o 'escuela', se antepone 'Facultad de '
+    elif not any(fac_norm.startswith(p) for p in ["facultad", "unidad", "escuela"]) and fac_clean:
+        fac_clean = f"Facultad de {fac_clean}"    
 
     carr_clean = str(datos["carrera"]).strip()
 
