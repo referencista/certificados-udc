@@ -115,16 +115,14 @@ REFERENCISTAS_POR_CAMPUS = {
     ],
     "Campus Paraíso": [
         {"nombre": "DANIEL RAMIRO CARRION ROMAN", "cargo": "Bibliotecario 2"},
-        {"nombre": "ANDREA", "cargo": "Bibliotecario 2"},
-        {"nombre": "XIMENA", "cargo": "Bibliotecario 2"},
+        {"nombre": "VANESSA ALEXANDRA MORALES MARINO", "cargo": "Bibliotecario 2"},
     ],
     "Campus Yanuncay": [
         {"nombre": "NUBE DEL ROCIO SALTO MORQUECHO", "cargo": "Bibliotecario 2"},
-        {"nombre": "HECTOR BLADIMIR CABRERA RODRIGUEZ", "cargo": "Bibliotecario 2"},
-        {"nombre": "LUIS", "cargo": "Bibliotecario 2"},
+        {"nombre": "HECTOR BLADIMIR CABRERA RODRIGUEZ", "cargo": "Bibliotecario 2"},       
     ],
     "Campus Centro Histórico": [
-        {"nombre": "DIANA", "cargo": "Bibliotecario 2"},
+        {"nombre": "DIANA MARLENE FAJARDO PASAN", "cargo": "Bibliotecario 2"},
     ],
 }
 
