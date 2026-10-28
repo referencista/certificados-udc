@@ -1044,7 +1044,6 @@ def crear_documento_word(datos):
             f", estudiante de la {fac_clean}, {prefix_carrera}{carr_clean}, "
             f"modalidad {nombre_modalidad}, no adeuda ningún bien, ni material bibliográfico en esta dependencia."
         )
-        )
     else:
         if tipo == "Maestría":
             if carr_lower.startswith(("maestría", "maestria")):
