@@ -974,13 +974,13 @@ def crear_documento_word(datos):
 
     fac_norm = normalizar_texto(fac_clean)
 
-    # 1. Autocorrección y estandarización para UCuenca TEC (corrige errores de tipeo del Excel)
-    if any(k in fac_norm for k in ["unidad academica", "ucuenca tec", "salvador allende", "tenologica"]):
+    # 1. Autocorrección para UCuenca TEC (cubre con o sin falta de ortografía en el Excel)
+    if any(k in fac_norm for k in ["unidad academica", "ucuenca tec", "salvador allende", "tenologica", "tecnologica"]):
         fac_clean = 'Unidad Académica de Formación Técnica y Tecnológica "Salvador Allende" UCuenca TEC.'
 
     # 2. Si es otra dependencia y no empieza con 'facultad', 'unidad' o 'escuela', se antepone 'Facultad de '
     elif not any(fac_norm.startswith(p) for p in ["facultad", "unidad", "escuela"]) and fac_clean:
-        fac_clean = f"Facultad de {fac_clean}"    
+        fac_clean = f"Facultad de {fac_clean}"
 
     carr_clean = str(datos["carrera"]).strip()
 
@@ -1003,17 +1003,22 @@ def crear_documento_word(datos):
     r_ced.font.name = "Arial"
     r_ced.font.bold = True
 
-   
     # Redacción limpia según modalidad
-    # NUEVA LÓGICA DINÁMICA SEGÚN TIPO DE TITULACIÓN:
+    carr_lower = carr_clean.lower()
+
     if tipo == "Complexivo":
+        if carr_lower.startswith(("carrera de", "tecnología en", "tecnologia en")):
+            prefix_carrera = "de la "
+        elif carr_lower.startswith("programa"):
+            prefix_carrera = "del "
+        else:
+            prefix_carrera = "de la carrera de "
+
         texto_cert = (
-            f", estudiante de la {fac_clean}, de la {carr_clean}, "
+            f", estudiante de la {fac_clean}, {prefix_carrera}{carr_clean}, "
             "modalidad Examen Complexivo, no adeuda ningún bien, ni material bibliográfico en esta dependencia."
         )
     else:
-        carr_lower = carr_clean.lower()
-
         if tipo == "Maestría":
             if carr_lower.startswith(("maestría", "maestria")):
                 prefix_carrera = "de la "
