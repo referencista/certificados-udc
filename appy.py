@@ -324,6 +324,9 @@ CATALOGO_OFICIAL_CARRERAS = {
     "pedagogia de la actividad fisica y deporte": "Pedagogía de la Actividad Física y Deporte",
     "pedagogia de los idiomas nacionales y extranjeros": "Pedagogía de los Idiomas Nacionales y Extranjeros",
     "pedagogia de las artes y las humanidades": "Pedagogía de las Artes y las Humanidades",
+    "pedagogia de las artes y humanidades": "Pedagogía de las Artes y las Humanidades",
+    "pedadogia de las artes y las humanidades": "Pedagogía de las Artes y las Humanidades",
+    "pedadogia de las artes y humanidades": "Pedagogía de las Artes y las Humanidades",
     "educacion basica": "Educación Básica",
     "educacion inicial": "Educación Inicial",
     "comunicacion": "Comunicación",
@@ -371,6 +374,7 @@ CATALOGO_OFICIAL_CARRERAS = {
 
 PALABRAS_TILDADAS_FALLBACK = {
     "pedagogia": "pedagogía",
+    "pedadogia": "pedagogía",
     "ingenieria": "ingeniería",
     "psicologia": "psicología",
     "sociologia": "sociología",
@@ -968,21 +972,40 @@ def crear_documento_word(datos):
     p_cuerpo.paragraph_format.line_spacing = 1.5
     p_cuerpo.paragraph_format.space_after = Pt(24)
 
+    # ------------------------------------------------------------------
+    # NORMALIZACIÓN DE FACULTAD / UNIDAD ACADÉMICA
+    # ------------------------------------------------------------------
+    fac_raw = str(datos.get("facultad", "")).strip()
     fac_clean = re.sub(
-        r"^(Universidad de Cuenca[\.\,\-]?\s*)", "", datos["facultad"], flags=re.I
+        r"^(Universidad de Cuenca[\.\,\-]?\s*|Facultad de\s*)", "", fac_raw, flags=re.I
     ).strip()
 
     fac_norm = normalizar_texto(fac_clean)
 
-    # 1. Autocorrección para UCuenca TEC (cubre con o sin falta de ortografía en el Excel)
+    # 1. Autocorrección para UCuenca TEC (cubriendo con o sin falta de ortografía en Excel)
     if any(k in fac_norm for k in ["unidad academica", "ucuenca tec", "salvador allende", "tenologica", "tecnologica"]):
         fac_clean = 'Unidad Académica de Formación Técnica y Tecnológica "Salvador Allende" UCuenca TEC.'
+    else:
+        # 2. Cruce con el Mapa Oficial de Facultades (convierte MAYÚSCULAS y pone tildes oficiales)
+        facultad_mapeada = None
+        for fac_oficial, kw_list in FACULTADES_MAP:
+            fac_base_norm = normalizar_texto(re.sub(r"^Facultad de\s*", "", fac_oficial, flags=re.I))
+            if fac_base_norm in fac_norm or fac_norm in fac_base_norm or any(kw in fac_norm for kw in kw_list):
+                facultad_mapeada = fac_oficial
+                break
 
-    # 2. Si es otra dependencia y no empieza con 'facultad', 'unidad' o 'escuela', se antepone 'Facultad de '
-    elif not any(fac_norm.startswith(p) for p in ["facultad", "unidad", "escuela"]) and fac_clean:
-        fac_clean = f"Facultad de {fac_clean}"
+        if facultad_mapeada:
+            fac_clean = facultad_mapeada
+        else:
+            if not any(fac_norm.startswith(p) for p in ["facultad", "unidad", "escuela"]) and fac_clean:
+                fac_clean = f"Facultad de {fac_clean.title()}"
+            elif fac_clean.isupper():
+                fac_clean = fac_clean.title()
 
-    carr_clean = str(datos["carrera"]).strip()
+    # ------------------------------------------------------------------
+    # NORMALIZACIÓN DE CARRERA / PROGRAMA (Aplica el catálogo de corrección)
+    # ------------------------------------------------------------------
+    carr_clean = formatear_carrera_espanol(datos.get("carrera", ""))
 
     tipo = datos.get("tipo_estudio", "Pregrado")
 
@@ -1003,7 +1026,9 @@ def crear_documento_word(datos):
     r_ced.font.name = "Arial"
     r_ced.font.bold = True
 
-    # Redacción limpia según modalidad
+    # ------------------------------------------------------------------
+    # REDACCIÓN DINÁMICA DE CONECTORES Y TEXTO DEL CERTIFICADO
+    # ------------------------------------------------------------------
     carr_lower = carr_clean.lower()
 
     if tipo == "Complexivo":
