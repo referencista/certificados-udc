@@ -1038,9 +1038,12 @@ def crear_documento_word(datos):
         else:
             prefix_carrera = "de la carrera de "
 
+        nombre_modalidad = "Examen Complexivo" if tipo == "Complexivo" else tipo
+
         texto_cert = (
             f", estudiante de la {fac_clean}, {prefix_carrera}{carr_clean}, "
-            f"modalidad {tipo}, no adeuda ningún bien, ni material bibliográfico en esta dependencia."
+            f"modalidad {nombre_modalidad}, no adeuda ningún bien, ni material bibliográfico en esta dependencia."
+        )
         )
     else:
         if tipo == "Maestría":
@@ -1117,9 +1120,13 @@ def crear_documento_word(datos):
     r_l1.font.name = "Arial"
     r_l1.font.bold = True
 
-    valor_link = (
-        tipo if tipo in ["Complexivo", "Estudios Avanzados de Posgrados"] else datos.get("handle", "")
-    )
+    if tipo == "Complexivo":
+        valor_link = "Examen Complexivo"
+    elif tipo == "Estudios Avanzados de Posgrados":
+        valor_link = "Estudios Avanzados de Posgrados"
+    else:
+        valor_link = datos.get("handle", "")
+    
     r_h = p_link.add_run(valor_link)
     r_h.font.name = "Arial"
     r_h.font.underline = True
