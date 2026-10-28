@@ -1003,10 +1003,9 @@ def crear_documento_word(datos):
                 fac_clean = fac_clean.title()
 
     # ------------------------------------------------------------------
-    # NORMALIZACIÓN DE CARRERA / PROGRAMA (Aplica el catálogo de corrección)
+    # NORMALIZACIÓN DE CARRERA / PROGRAMA
     # ------------------------------------------------------------------
     carr_clean = formatear_carrera_espanol(datos.get("carrera", ""))
-
     tipo = datos.get("tipo_estudio", "Pregrado")
 
     r_c1 = p_cuerpo.add_run(
@@ -1031,7 +1030,7 @@ def crear_documento_word(datos):
     # ------------------------------------------------------------------
     carr_lower = carr_clean.lower()
 
-    if tipo == "Complexivo":
+    if tipo in ["Complexivo", "Estudios Avanzados de Posgrados"]:
         if carr_lower.startswith(("carrera de", "tecnología en", "tecnologia en")):
             prefix_carrera = "de la "
         elif carr_lower.startswith("programa"):
@@ -1041,7 +1040,7 @@ def crear_documento_word(datos):
 
         texto_cert = (
             f", estudiante de la {fac_clean}, {prefix_carrera}{carr_clean}, "
-            "modalidad Examen Complexivo, no adeuda ningún bien, ni material bibliográfico en esta dependencia."
+            f"modalidad {tipo}, no adeuda ningún bien, ni material bibliográfico en esta dependencia."
         )
     else:
         if tipo == "Maestría":
@@ -1109,7 +1108,7 @@ def crear_documento_word(datos):
     )
     r_f2.font.name = "Arial"
 
-    # ENLACE DSPACE
+    # ENLACE DSPACE O MODALIDAD
     for _ in range(2):
         doc.add_paragraph()
 
@@ -1119,7 +1118,7 @@ def crear_documento_word(datos):
     r_l1.font.bold = True
 
     valor_link = (
-        "Examen Complexivo" if tipo == "Complexivo" else datos.get("handle", "")
+        tipo if tipo in ["Complexivo", "Estudios Avanzados de Posgrados"] else datos.get("handle", "")
     )
     r_h = p_link.add_run(valor_link)
     r_h.font.name = "Arial"
@@ -1143,9 +1142,8 @@ def crear_documento_word(datos):
 
 # ------------------------------------------------------------------
 # INTERFAZ PRINCIPAL EN STREAMLIT
-# NUEVO BLOQUE MULTI-CAMPUS
+# BLOQUE MULTI-CAMPUS
 # ------------------------------------------------------------------
-# NUEVO BLOQUE MULTI-CAMPUS:
 col_campus, col_ref, col_tipo = st.columns([2, 2, 2])
 
 with col_campus:
@@ -1161,8 +1159,8 @@ with col_ref:
 
 with col_tipo:
     tipo_estudio = st.selectbox(
-        "Tipo de Titulación:",
-        ["Pregrado", "Maestría", "Doctorado", "Complexivo"],
+        "Tipo de Titulación / Proceso:",
+        ["Pregrado", "Maestría", "Doctorado", "Complexivo", "Estudios Avanzados de Posgrados"],
     )
 
 ref_info = next(
@@ -1174,7 +1172,7 @@ st.markdown("---")
 # ------------------------------------------------------------------
 # CASO A: PREGRADO, MAESTRÍA O DOCTORADO (DSPACE)
 # ------------------------------------------------------------------
-if tipo_estudio != "Complexivo":
+if tipo_estudio not in ["Complexivo", "Estudios Avanzados de Posgrados"]:
     st.markdown("#### 1. Parámetros de la Consulta DSpace")
 
     if "handle_input" not in st.session_state:
@@ -1323,12 +1321,12 @@ if tipo_estudio != "Complexivo":
             )
 
 # ------------------------------------------------------------------
-# CASO B: EXAMEN COMPLEXIVO
+# CASO B: EXAMEN COMPLEXIVO O ESTUDIOS AVANZADOS DE POSGRADOS
 # ------------------------------------------------------------------
 else:
-    st.markdown("#### 1. Parámetros de Examen Complexivo")
+    st.markdown(f"#### 1. Parámetros de {tipo_estudio}")
 
-    modo_complexivo = st.radio(
+    modo_manual_excel = st.radio(
         "Seleccione la modalidad de generación:",
         [
             "👤 Ingreso Manual (1 Estudiante)",
@@ -1339,9 +1337,9 @@ else:
 
     st.markdown("---")
 
-    if "Ingreso Manual" in modo_complexivo:
+    if "Ingreso Manual" in modo_manual_excel:
         st.info(
-            "ℹ️ Ingrese los datos del estudiante de examen complexivo para"
+            f"ℹ️ Ingrese los datos del estudiante de {tipo_estudio} para"
             " generar su certificado individual."
         )
 
@@ -1349,23 +1347,23 @@ else:
         with col_m1:
             nom_comp = st.text_input(
                 "Nombres y Apellidos Completos:",
-                value="ZHIZHPON GUACHICHULLCA BYRON GEOVANNY",
+                value="CHUQUIMARCA CHUQUIMARCA JOHN LEONIDAS",
             )
             carr_comp = st.text_input(
                 "Carrera o Programa:",
-                value="PEDAGOGIA DE LAS ARTES Y LAS HUMANIDADES",
+                value="Sociología",
             )
         with col_m2:
             fac_comp = st.text_input(
                 "Facultad:",
-                value="FILOSOFIA, LETRAS Y CIENCIAS DE LA EDUCACION",
+                value="Facultad de Ciencias Económicas y Administrativas",
             )
 
         payload_manual = {
             "autor": nom_comp.strip().upper(),
             "facultad": fac_comp.strip(),
             "carrera": formatear_carrera_espanol(carr_comp),
-            "tipo_estudio": "Complexivo",
+            "tipo_estudio": tipo_estudio,
             "handle": "",
             "ref_nombre": ref_info["nombre"],
             "ref_cargo": ref_info["cargo"],
@@ -1377,17 +1375,17 @@ else:
             label="📄 Descargar Certificado Word (.docx)",
             data=buf_manual,
             file_name=(
-                f"Certificado_Complexivo_{nom_comp.replace(' ', '_')}.docx"
+                f"Certificado_{tipo_estudio.replace(' ', '_')}_{nom_comp.replace(' ', '_')}.docx"
             ),
             mime=(
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             ),
-            key="btn_complexivo_manual",
+            key="btn_manual_proceso",
         )
 
     else:
         st.info(
-            "📂 Cargue el archivo Excel con el listado de Exámenes Complexivos"
+            f"📂 Cargue el archivo Excel con el listado de {tipo_estudio}"
             " para generar los certificados de los estudiantes autorizados."
         )
 
@@ -1518,7 +1516,7 @@ else:
                                             "autor": nombre_completo,
                                             "facultad": facultad_val,
                                             "carrera": carrera_val,
-                                            "tipo_estudio": "Complexivo",
+                                            "tipo_estudio": tipo_estudio,
                                             "handle": "",
                                             "ref_nombre": ref_info["nombre"],
                                             "ref_cargo": ref_info["cargo"],
@@ -1536,15 +1534,15 @@ else:
                                 zip_buffer.seek(0)
                                 st.download_button(
                                     label=(
-                                        "📦 Descargar Certificados Complexivos"
+                                        f"📦 Descargar Certificados {tipo_estudio}"
                                         f" (.ZIP) ({cant_autorizados} archivos)"
                                     ),
                                     data=zip_buffer,
                                     file_name=(
-                                        "Certificados_Complexivo_UCuenca.zip"
+                                        f"Certificados_{tipo_estudio.replace(' ', '_')}_UCuenca.zip"
                                     ),
                                     mime="application/zip",
-                                    key="btn_dl_complexivo_zip",
+                                    key="btn_dl_excel_zip",
                                 )
             except Exception as e:
                 st.error(
