@@ -15,36 +15,101 @@ from docx.shared import Inches, Pt, RGBColor
 import pandas as pd
 import requests
 import streamlit as st
+from streamlit_gsheets import GSheetsConnection
 import urllib3
 
 # Desactivar advertencias SSL por certificados intermedios institucionales
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# Nombre exacto de la pestaña en Google Sheets
+WORKSHEET_NAME = "Certificados"
+
+# ------------------------------------------------------------------
+# FUNCIONES DE REGISTRO EN GOOGLE SHEETS (7 COLUMNAS)
+# ------------------------------------------------------------------
+def registrar_evento_certificado_gsheets(payload, campus):
+    """Registra 1 certificado emitido directamente en Google Sheets."""
+    try:
+        tz_ecuador = timezone(timedelta(hours=-5))
+        fecha_actual = datetime.now(tz_ecuador).strftime("%Y-%m-%d %H:%M:%S")
+
+        nueva_fila = pd.DataFrame([{
+            "fecha_hora": fecha_actual,
+            "campus": campus,
+            "referencista": payload.get("ref_nombre", ""),
+            "estudiante": payload.get("autor", ""),
+            "facultad": payload.get("facultad", ""),
+            "carrera": payload.get("carrera", ""),
+            "tipo_estudio": payload.get("tipo_estudio", "")
+        }])
+
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        try:
+            df_existente = conn.read(worksheet=WORKSHEET_NAME, ttl="0s")
+            df_actualizado = pd.concat([df_existente, nueva_fila], ignore_index=True)
+        except Exception:
+            df_actualizado = nueva_fila
+
+        conn.update(worksheet=WORKSHEET_NAME, data=df_actualizado)
+    except Exception as e:
+        st.error(f"⚠️ Error registrando emisión en Google Sheets: {e}")
+
+
+def registrar_lote_certificados_gsheets(lista_payloads, campus):
+    """Registra la emisión masiva de certificados (ZIP) en Google Sheets."""
+    try:
+        tz_ecuador = timezone(timedelta(hours=-5))
+        fecha_actual = datetime.now(tz_ecuador).strftime("%Y-%m-%d %H:%M:%S")
+
+        filas = []
+        for p in lista_payloads:
+            filas.append({
+                "fecha_hora": fecha_actual,
+                "campus": campus,
+                "referencista": p.get("ref_nombre", ""),
+                "estudiante": p.get("autor", ""),
+                "facultad": p.get("facultad", ""),
+                "carrera": p.get("carrera", ""),
+                "tipo_estudio": p.get("tipo_estudio", "")
+            })
+
+        nuevas_filas_df = pd.DataFrame(filas)
+
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        try:
+            df_existente = conn.read(worksheet=WORKSHEET_NAME, ttl="0s")
+            df_actualizado = pd.concat([df_existente, nuevas_filas_df], ignore_index=True)
+        except Exception:
+            df_actualizado = nuevas_filas_df
+
+        conn.update(worksheet=WORKSHEET_NAME, data=df_actualizado)
+    except Exception as e:
+        st.error(f"⚠️ Error registrando lote en Google Sheets: {e}")
+
+
 # ------------------------------------------------------------------
 # CONFIGURACIÓN DE PÁGINA Y ESTILOS UCUENCA
 # ------------------------------------------------------------------
 st.set_page_config(
-    page_title="UCuenca - Generador de Certificados de No Adeudar",
+    page_title="UCuenca - Generador de Certificados y Reportes de Gestión",
     page_icon="🎓",
     layout="wide",
 )
 
 CSS_UCUENCA = """
 <style>
-    /* Estilo General */
     body {
         font-family: 'Arial', sans-serif;
         background-color: #f4f6f9;
     }
     
-    /* Header Institucional */
     .uc-header {
         text-align: center;
         background-color: #13386c !important;
         color: white;
         padding: 20px 30px;
         border-radius: 8px 8px 6px 6px;
-        margin-bottom: 25px;
+        margin-bottom: 15px;
         border-bottom: 5px solid #b81c32 !important;
         box-shadow: 0 4px 10px rgba(0,0,0,0.08);
     }
@@ -60,7 +125,6 @@ CSS_UCUENCA = """
         margin-top: 5px !important;
     }
 
-    /* Botones Institucionales */
     .stButton>button, .stDownloadButton>button {
         background-color: #13386c !important;
         color: #ffffff !important;
@@ -78,14 +142,12 @@ CSS_UCUENCA = """
         color: #ffffff !important;
     }
 
-    /* Ocultar elementos secundarios predeterminados de Streamlit */
     footer { display: none !important; }
 </style>
 """
 
 st.markdown(CSS_UCUENCA, unsafe_allow_html=True)
 
-# Banner de Encabezado Institucional
 st.markdown(
     """
     <div class="uc-header">
@@ -96,9 +158,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-
 # ------------------------------------------------------------------
-# LISTA OFICIAL DE REFERENCISTAS ORGANIZADOS POR CAMPUS
+# LISTA OFICIAL DE REFERENCISTAS POR CAMPUS
 # ------------------------------------------------------------------
 REFERENCISTAS_POR_CAMPUS = {
     "Campus Central": [
@@ -127,180 +188,91 @@ REFERENCISTAS_POR_CAMPUS = {
 }
 
 MESES = [
-    "enero",
-    "febrero",
-    "marzo",
-    "abril",
-    "mayo",
-    "junio",
-    "julio",
-    "agosto",
-    "septiembre",
-    "octubre",
-    "noviembre",
-    "diciembre",
+    "enero", "febrero", "marzo", "abril", "mayo", "junio",
+    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"
 ]
 
 FACULTADES_MAP = [
     (
         "Facultad de Ciencias Agropecuarias",
         [
-            "agropecuaria",
-            "agropecuarias",
-            "agronomía",
-            "agronomia",
-            "agronómica",
-            "agronomica",
-            "veterinaria",
-            "medicina veterinaria",
-            "zootecnia",
+            "agropecuaria", "agropecuarias", "agronomía", "agronomia",
+            "agronómica", "agronomica", "veterinaria", "medicina veterinaria", "zootecnia"
         ],
     ),
     (
         "Facultad de Ciencias de la Hospitalidad",
         [
-            "hospitalidad",
-            "turismo",
-            "gastronomía",
-            "gastronomia",
-            "hotelería",
-            "hoteleria",
+            "hospitalidad", "turismo", "gastronomía", "gastronomia",
+            "hotelería", "hoteleria"
         ],
     ),
     (
         "Facultad de Arquitectura y Urbanismo",
         [
-            "arquitectura",
-            "diseño gráfico",
-            "diseño de interiores",
-            "diseño interior",
-            "urbanismo",
+            "arquitectura", "diseño gráfico", "diseño de interiores",
+            "diseño interior", "urbanismo"
         ],
     ),
     (
         "Facultad de Ciencias Económicas y Administrativas",
         [
-            "económica",
-            "economía",
-            "economica",
-            "economia",
-            "administración",
-            "administracion",
-            "contabilidad",
-            "auditoría",
-            "auditoria",
-            "mercadotecnia",
-            "finanzas",
-            "comercio exterior",
-            "empresa",
-            "empresas",
+            "económica", "economía", "econémica", "economia", "administración",
+            "administracion", "contabilidad", "auditoría", "auditoria",
+            "mercadotecnia", "finanzas", "comercio exterior", "empresa", "empresas"
         ],
     ),
     (
         "Facultad de Ingeniería",
         [
-            "ingeniería civil",
-            "ingenieria civil",
-            "sistemas",
-            "computación",
-            "computacion",
-            "eléctrica",
-            "electrica",
-            "electrónica",
-            "electronica",
-            "telecomunicaciones",
-            "industrial",
-            "carreteras",
-            "software",
+            "ingeniería civil", "ingenieria civil", "sistemas", "computación",
+            "computacion", "eléctrica", "electrica", "electrónica", "electronica",
+            "telecomunicaciones", "industrial", "carreteras", "software"
         ],
     ),
     (
         "Facultad de Ciencias Médicas",
         [
-            "médica",
-            "medicina",
-            "enfermería",
-            "enfermeria",
-            "fisioterapia",
-            "laboratorio clínico",
-            "laboratorio clinico",
-            "nutrición",
-            "nutricion",
-            "salud",
-            "fonoaudiología",
-            "imagenología",
+            "médica", "medicina", "enfermería", "enfermeria", "fisioterapia",
+            "laboratorio clínico", "laboratorio clinico", "nutrición",
+            "nutricion", "salud", "fonoaudiología", "imagenología"
         ],
     ),
     (
         "Facultad de Ciencias Químicas",
         [
-            "química",
-            "quimica",
-            "bioquímica",
-            "bioquimica",
-            "farmacia",
-            "ingeniería química",
-            "ingenieria quimica",
-            "ingeniería ambiental",
-            "ingenieria ambiental",
-            "alimentos",
+            "química", "quimica", "bioquímica", "bioquimica", "farmacia",
+            "ingeniería química", "ingenieria quimica", "ingeniería ambiental",
+            "ingenieria ambiental", "alimentos"
         ],
     ),
     (
         "Facultad de Filosofía, Letras y Ciencias de la Educación",
         [
-            "filosofía",
-            "filosofia",
-            "educación",
-            "educacion",
-            "comunicación",
-            "comunicacion",
-            "idiomas",
-            "lengua",
-            "historia",
-            "pedagogía",
-            "pedagogia",
-            "literatura",
-            "inicial",
-            "básica",
-            "basica",
+            "filosofía", "filosofia", "educación", "educacion", "comunicación",
+            "comunicacion", "idiomas", "lengua", "historia", "pedagogía",
+            "pedagogia", "literatura", "inicial", "básica", "basica"
         ],
     ),
     (
         "Facultad de Jurisprudencia, Ciencias Políticas y Sociales",
         [
-            "jurisprudencia",
-            "derecho",
-            "trabajo social",
-            "orientación familiar",
-            "orientacion familiar",
-            "política",
-            "politica",
-            "género",
+            "jurisprudencia", "derecho", "trabajo social", "orientación familiar",
+            "orientacion familiar", "política", "politica", "género"
         ],
     ),
     (
         "Facultad de Artes",
         [
-            "artes",
-            "música",
-            "musica",
-            "danza",
-            "teatro",
-            "artes visuales",
-            "diseño teatral",
-            "escénicas",
+            "artes", "música", "musica", "danza", "teatro", "artes visuales",
+            "diseño teatral", "escénicas"
         ],
     ),
     (
         "Facultad de Psicología",
         [
-            "psicología",
-            "psicologia",
-            "psicología clínica",
-            "psicologia clinica",
-            "psicoeducativa",
-            "psicoterapia",
+            "psicología", "psicologia", "psicología clínica", "psicologia clinica",
+            "psicoeducativa", "psicoterapia"
         ],
     ),
 ]
@@ -314,12 +286,7 @@ def normalizar_texto(texto):
     return texto.lower()
 
 
-# ==================================================================
-# SISTEMA DE FORMATEO DE CARRERAS (CATÁLOGO CANÓNICO + FALLBACK)
-# ==================================================================
-
 CATALOGO_OFICIAL_CARRERAS = {
-    # Pregrado
     "pedagogia de las ciencias experimentales": "Pedagogía de las Ciencias Experimentales",
     "pedagogia de la actividad fisica y deporte": "Pedagogía de la Actividad Física y Deporte",
     "pedagogia de los idiomas nacionales y extranjeros": "Pedagogía de los Idiomas Nacionales y Extranjeros",
@@ -365,7 +332,6 @@ CATALOGO_OFICIAL_CARRERAS = {
     "artes visuales": "Artes Visuales",
     "gastronomia": "Gastronomía",
     "turismo": "Turismo",
-    # Posgrado / Maestrías
     "maestria en contabilidad y auditoria": "Maestría en Contabilidad y Auditoría",
     "maestria en gestion publica y buen gobierno": "Maestría en Gestión Pública y Buen Gobierno",
     "maestria en educacion": "Maestría en Educación",
@@ -373,41 +339,17 @@ CATALOGO_OFICIAL_CARRERAS = {
 }
 
 PALABRAS_TILDADAS_FALLBACK = {
-    "pedagogia": "pedagogía",
-    "pedadogia": "pedagogía",
-    "ingenieria": "ingeniería",
-    "psicologia": "psicología",
-    "sociologia": "sociología",
-    "agronomia": "agronomía",
-    "gastronomia": "gastronomía",
-    "hoteleria": "hotelería",
-    "fonoaudiologia": "fonoaudiología",
-    "imagenologia": "imagenología",
-    "auditoria": "auditoría",
-    "maestria": "maestría",
-    "biologia": "biología",
-    "tecnologia": "tecnología",
-    "educacion": "educación",
-    "comunicacion": "comunicación",
-    "administracion": "administración",
-    "gestion": "gestión",
-    "investigacion": "investigación",
-    "orientacion": "orientación",
-    "nutricion": "nutrición",
-    "basica": "básica",
-    "clinica": "clínica",
-    "medica": "médica",
-    "fisica": "física",
-    "quimica": "química",
-    "bioquimica": "bioquímica",
-    "politica": "política",
-    "publica": "pública",
-    "economica": "económica",
-    "electronica": "electrónica",
-    "electrica": "eléctrica",
-    "musica": "música",
-    "genero": "género",
-    "diseno": "diseño",
+    "pedagogia": "pedagogía", "pedadogia": "pedagogía", "ingenieria": "ingeniería",
+    "psicologia": "psicología", "sociologia": "sociología", "agronomia": "agronomía",
+    "gastronomia": "gastronomía", "hoteleria": "hotelería", "fonoaudiologia": "fonoaudiología",
+    "imagenologia": "imagenología", "auditoria": "auditoría", "maestria": "maestría",
+    "biologia": "biología", "tecnologia": "tecnología", "educacion": "educación",
+    "comunicacion": "comunicación", "administracion": "administración", "gestion": "gestión",
+    "investigacion": "investigación", "orientacion": "orientación", "nutricion": "nutrición",
+    "basica": "básica", "clinica": "clínica", "medica": "médica", "fisica": "física",
+    "quimica": "química", "bioquimica": "bioquímica", "politica": "política",
+    "publica": "pública", "economica": "económica", "electronica": "electrónica",
+    "electrica": "eléctrica", "musica": "música", "genero": "género", "diseno": "diseño",
     "rediseno": "rediseño",
 }
 
@@ -423,11 +365,9 @@ def formatear_carrera_espanol(texto):
     texto_limpio = re.sub(r"\s+", " ", str(texto)).strip()
     texto_norm = normalizar_texto(texto_limpio)
 
-    # 1. Búsqueda exacta en el catálogo canónico oficial
     if texto_norm in CATALOGO_OFICIAL_CARRERAS:
         return CATALOGO_OFICIAL_CARRERAS[texto_norm]
 
-    # 2. Formateo de respaldo preservando palabras para corrección en Word
     palabras = texto_limpio.split()
     resultado = []
 
@@ -454,17 +394,15 @@ def formatear_carrera_espanol(texto):
 
 
 # ------------------------------------------------------------------
-# EXTRACCIÓN Y LIMPIEZA DE METADATOS VÍA DSPACE 9.3 (MULTI-CAPA)
+# EXTRACCIÓN Y LIMPIEZA DE METADATOS VÍA DSPACE 9.3
 # ------------------------------------------------------------------
 @st.cache_data(ttl=3600, show_spinner=False)
 def extraer_metadatos_dspace(url_input):
     url_clean = url_input.strip()
 
-    # Identificar UUID (8-4-4-4-12 hex) o Handle (123456789/xxx)
     match_uuid = re.search(
         r"([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})",
-        url_clean,
-        re.I,
+        url_clean, re.I
     )
     match_handle = re.search(r"handle/(.+)$", url_clean, re.I) or re.search(
         r"(\d+[\.\d]*/\d+)", url_clean
@@ -482,7 +420,6 @@ def extraer_metadatos_dspace(url_input):
         "https://dspace.ucuenca.edu.ec/api",
     ]
 
-    # Cabeceras navegables completas para superar bloqueos WAF/Fortinet
     headers = {
         "Accept": "application/json, text/html, application/xhtml+xml, */*",
         "Accept-Language": "es-EC,es;q=0.9,en-US;q=0.8,en;q=0.7",
@@ -498,59 +435,27 @@ def extraer_metadatos_dspace(url_input):
     owning_coll_name = ""
     handle_official = (
         f"https://dspace.ucuenca.edu.ec/handle/{handle_id}"
-        if handle_id
-        else url_clean
+        if handle_id else url_clean
     )
 
     data = None
     exito_extraccion = False
 
-    # --- MÉTODO 1: DSPACE REST API 9.3 EN 2 PASOS ---
     if not uuid_id and handle_id:
         for base in base_apis:
-            for pid_param in [
-                handle_id,
-                f"handle/{handle_id}",
-                f"http://hdl.handle.net/{handle_id}",
-            ]:
+            for pid_param in [handle_id, f"handle/{handle_id}", f"http://hdl.handle.net/{handle_id}"]:
                 try:
                     pid_url = f"{base}/pid/find?id={pid_param}"
-                    resp_pid = requests.get(
-                        pid_url,
-                        headers=headers,
-                        timeout=8,
-                        verify=False,
-                        allow_redirects=True,
-                    )
-
-                    # Intentar resolver UUID desde la URL redirigida
-                    m_u = re.search(
-                        r"([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})",
-                        resp_pid.url,
-                        re.I,
-                    )
+                    resp_pid = requests.get(pid_url, headers=headers, timeout=8, verify=False, allow_redirects=True)
+                    m_u = re.search(r"([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})", resp_pid.url, re.I)
                     if m_u:
                         uuid_id = m_u.group(1)
                         break
-
                     if resp_pid.status_code == 200:
                         try:
                             d_pid = resp_pid.json()
                             if isinstance(d_pid, dict):
                                 uuid_id = d_pid.get("uuid") or d_pid.get("id")
-                                if not uuid_id and "_links" in d_pid:
-                                    href = (
-                                        d_pid["_links"]
-                                        .get("self", {})
-                                        .get("href", "")
-                                    )
-                                    m_u2 = re.search(
-                                        r"([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})",
-                                        href,
-                                        re.I,
-                                    )
-                                    if m_u2:
-                                        uuid_id = m_u2.group(1)
                                 if "metadata" in d_pid:
                                     data = d_pid
                                     break
@@ -566,12 +471,8 @@ def extraer_metadatos_dspace(url_input):
     if uuid_id and not data:
         for base in base_apis:
             try:
-                item_url = (
-                    f"{base}/core/items/{uuid_id}?embed=owningCollection"
-                )
-                resp_item = requests.get(
-                    item_url, headers=headers, timeout=8, verify=False
-                )
+                item_url = f"{base}/core/items/{uuid_id}?embed=owningCollection"
+                resp_item = requests.get(item_url, headers=headers, timeout=8, verify=False)
                 if resp_item.status_code == 200:
                     d_item = resp_item.json()
                     if isinstance(d_item, dict) and "metadata" in d_item:
@@ -583,134 +484,35 @@ def extraer_metadatos_dspace(url_input):
     if data:
         metadata = data.get("metadata", {})
         try:
-            owning_coll_name = (
-                data.get("_embedded", {})
-                .get("owningCollection", {})
-                .get("name", "")
-                .strip()
-            )
+            owning_coll_name = data.get("_embedded", {}).get("owningCollection", {}).get("name", "").strip()
         except Exception:
             pass
         if metadata:
             exito_extraccion = True
 
-    # --- MÉTODO 2: PROTOCOLO OAI-PMH (NATIVO DSPACE) ---
     if not exito_extraccion and handle_id:
         try:
-            oai_url = (
-                f"https://dspace.ucuenca.edu.ec/oai/request?verb=GetRecord&"
-                f"identifier=oai:dspace.ucuenca.edu.ec:{handle_id}&metadataPrefix=oai_dc"
-            )
-            resp_oai = requests.get(
-                oai_url, headers=headers, timeout=8, verify=False
-            )
+            oai_url = f"https://dspace.ucuenca.edu.ec/oai/request?verb=GetRecord&identifier=oai:dspace.ucuenca.edu.ec:{handle_id}&metadataPrefix=oai_dc"
+            resp_oai = requests.get(oai_url, headers=headers, timeout=8, verify=False)
             if resp_oai.status_code == 200 and "<OAI-PMH" in resp_oai.text:
                 root = ET.fromstring(resp_oai.text)
-                ns = {
-                    "dc": "http://purl.org/dc/elements/1.1/",
-                    "oai_dc": "http://www.openarchives.org/OAI/2.0/oai_dc/",
-                }
-
+                ns = {"dc": "http://purl.org/dc/elements/1.1/", "oai_dc": "http://www.openarchives.org/OAI/2.0/oai_dc/"}
                 meta_oai = {}
                 for creator in root.findall(".//dc:creator", ns):
                     if creator.text:
-                        meta_oai.setdefault(
-                            "dc.contributor.author", []
-                        ).append({"value": creator.text.strip()})
+                        meta_oai.setdefault("dc.contributor.author", []).append({"value": creator.text.strip()})
                 for pub in root.findall(".//dc:publisher", ns):
                     if pub.text:
-                        meta_oai.setdefault("dc.publisher", []).append(
-                            {"value": pub.text.strip()}
-                        )
+                        meta_oai.setdefault("dc.publisher", []).append({"value": pub.text.strip()})
                 for t in root.findall(".//dc:title", ns):
                     if t.text:
-                        meta_oai.setdefault("dc.title", []).append(
-                            {"value": t.text.strip()}
-                        )
-                for subj in root.findall(".//dc:subject", ns):
-                    if subj.text:
-                        meta_oai.setdefault("dc.subject", []).append(
-                            {"value": subj.text.strip()}
-                        )
-
+                        meta_oai.setdefault("dc.title", []).append({"value": t.text.strip()})
                 if meta_oai:
                     metadata = meta_oai
                     exito_extraccion = True
         except Exception:
             pass
 
-    # --- MÉTODO 3: WEB SCRAPING HTML SSR ---
-    if not exito_extraccion:
-        target_urls = [url_clean]
-        if handle_id:
-            target_urls.append(
-                f"https://dspace.ucuenca.edu.ec/handle/{handle_id}?show=full"
-            )
-            target_urls.append(
-                f"https://dspace.ucuenca.edu.ec/handle/{handle_id}"
-            )
-
-        for t_url in target_urls:
-            try:
-                resp_html = requests.get(
-                    t_url,
-                    headers=headers,
-                    timeout=8,
-                    verify=False,
-                    allow_redirects=True,
-                )
-                if resp_html.status_code == 200:
-                    html_text = resp_html.text
-                    meta_dict = {}
-
-                    tags = re.findall(r"<meta\s+([^>]+)>", html_text, re.I)
-                    for tag_attr in tags:
-                        name_m = re.search(
-                            r'(?:name|property|itemprop)=["\']([^"\']+)["\']',
-                            tag_attr,
-                            re.I,
-                        )
-                        content_m = re.search(
-                            r'content=["\']([^"\']+)["\']', tag_attr, re.I
-                        )
-                        if name_m and content_m:
-                            k = name_m.group(1).strip()
-                            v = content_m.group(1).strip()
-                            if k and v:
-                                meta_dict.setdefault(k, []).append({"value": v})
-
-                    json_ld = re.findall(
-                        r'<script\s+type=["\']application/ld\+json["\']\s*>(.*?)</script>',
-                        html_text,
-                        re.DOTALL | re.I,
-                    )
-                    for script in json_ld:
-                        try:
-                            ld_data = json.loads(script.strip())
-                            if "author" in ld_data:
-                                auths = ld_data["author"]
-                                if isinstance(auths, dict):
-                                    auths = [auths]
-                                for a in auths:
-                                    if isinstance(a, dict) and "name" in a:
-                                        meta_dict.setdefault(
-                                            "dc.contributor.author", []
-                                        ).append({"value": a["name"]})
-                        except Exception:
-                            pass
-
-                    if (
-                        meta_dict.get("citation_author")
-                        or meta_dict.get("dc.contributor.author")
-                        or meta_dict.get("DC.creator")
-                    ):
-                        metadata = meta_dict
-                        exito_extraccion = True
-                        break
-            except Exception:
-                continue
-
-    # --- EXTRAER Y ENSAMBLAR CAMPOS FINALES ---
     def get_all_meta_values(keys_list):
         if isinstance(keys_list, str):
             keys_list = [keys_list]
@@ -718,36 +520,19 @@ def extraer_metadatos_dspace(url_input):
         for key in keys_list:
             items = metadata.get(key, [])
             for item in items:
-                v = (
-                    item.get("value", "").strip()
-                    if isinstance(item, dict)
-                    else str(item).strip()
-                )
+                v = item.get("value", "").strip() if isinstance(item, dict) else str(item).strip()
                 if v and v not in res:
                     res.append(v)
         return res
 
-    # 1. Autores
-    raw_authors = get_all_meta_values([
-        "dc.contributor.author",
-        "dc.creator",
-        "citation_author",
-        "DC.creator",
-        "author",
-        "cris.author.name",
-    ])
+    raw_authors = get_all_meta_values(["dc.contributor.author", "dc.creator", "citation_author", "author"])
     autores_formateados = []
     for a in raw_authors:
         a_clean = re.sub(r"\s+", " ", a).strip().upper()
         if a_clean and a_clean not in autores_formateados:
             autores_formateados.append(a_clean)
 
-    # 2. Análisis de dc.publisher (Ej: "Universidad de Cuenca. Facultad de ... Carrera de ...")
-    publishers = get_all_meta_values([
-        "dc.publisher",
-        "thesis.degree.grantor",
-        "citation_publisher",
-    ])
+    publishers = get_all_meta_values(["dc.publisher", "thesis.degree.grantor"])
     pub_facultad, pub_carrera = "", ""
     for pub_text in publishers:
         parts = [p.strip() for p in pub_text.split(".") if p.strip()]
@@ -755,45 +540,14 @@ def extraer_metadatos_dspace(url_input):
             p_norm = normalizar_texto(part)
             if "facultad de" in p_norm and not pub_facultad:
                 pub_facultad = part
-            elif (
-                any(
-                    k in p_norm
-                    for k in [
-                        "carrera de",
-                        "maestria en",
-                        "maestría en",
-                        "programa de",
-                        "doctorado en",
-                    ]
-                )
-                and not pub_carrera
-            ):
+            elif any(k in p_norm for k in ["carrera de", "maestria en", "maestría en", "programa de"]) and not pub_carrera:
                 pub_carrera = part
 
-    # 3. Facultad
     titulos = " ".join(get_all_meta_values(["dc.title", "citation_title"]))
-    materias = " ".join(
-        get_all_meta_values(["dc.subject", "dc.description.abstract"])
-    )
+    materias = " ".join(get_all_meta_values(["dc.subject", "dc.description.abstract"]))
     texto_inferencia = normalizar_texto(f"{titulos} {materias}")
 
-    candidatos_facultad = []
-    if pub_facultad:
-        candidatos_facultad.append(pub_facultad)
-    if owning_coll_name:
-        candidatos_facultad.append(owning_coll_name)
-
-    candidatos_facultad.extend(
-        get_all_meta_values([
-            "thesis.degree.grantor",
-            "dc.publisher",
-            "dc.department",
-            "dc.contributor.department",
-            "dc.publisher.department",
-            "dc.degree.grantor",
-        ])
-    )
-
+    candidatos_facultad = [pub_facultad, owning_coll_name] if pub_facultad else [owning_coll_name]
     facultad_detectada = ""
     for cand in candidatos_facultad:
         cand_norm = normalizar_texto(cand)
@@ -811,77 +565,30 @@ def extraer_metadatos_dspace(url_input):
                 facultad_detectada = fac_oficial
                 break
 
-    # 4. Carrera / Programa (Excluyendo dc.subject para evitar palabras clave)
-    candidatos_carrera = []
-    if pub_carrera:
-        candidatos_carrera.append(pub_carrera)
-    if owning_coll_name:
-        candidatos_carrera.append(owning_coll_name)
-
-    candidatos_carrera.extend(
-        get_all_meta_values([
-            "thesis.degree.discipline",
-            "thesis.degree.name",
-            "dc.degree.discipline",
-            "dc.degree.program",
-            "dc.publisher.program",
-            "dc.department",
-            "DC.degree.discipline",
-        ])
-    )
-
+    candidatos_carrera = [pub_carrera, owning_coll_name] if pub_carrera else [owning_coll_name]
+    candidatos_carrera.extend(get_all_meta_values(["thesis.degree.discipline", "thesis.degree.name", "dc.degree.discipline"]))
     carrera_detectada = ""
     for cand in candidatos_carrera:
-        cand_clean = re.sub(
-            r"^(Universidad de Cuenca[\.\,\-]?\s*|Facultad de [^.]+\.\s*)",
-            "",
-            cand,
-            flags=re.I,
-        ).strip()
-
-        if (
-            cand_clean
-            and "universidad" not in cand_clean.lower()
-            and "facultad" not in cand_clean.lower()
-        ):
+        cand_clean = re.sub(r"^(Universidad de Cuenca[\.\,\-]?\s*|Facultad de [^.]+\.\s*)", "", cand, flags=re.I).strip()
+        if cand_clean and "universidad" not in cand_clean.lower() and "facultad" not in cand_clean.lower():
             carrera_detectada = cand_clean
-            break
-
-    if not carrera_detectada and candidatos_carrera:
-        carrera_detectada = candidatos_carrera[0]
-
-    # 5. Handle Oficial
-    uri_items = metadata.get("dc.identifier.uri", [])
-    for uri in uri_items:
-        val_uri = uri.get("value", "") if isinstance(uri, dict) else str(uri)
-        if "handle/" in val_uri or "items/" in val_uri:
-            handle_official = val_uri
             break
 
     return {
         "exito": exito_extraccion,
-        "autores": (
-            autores_formateados
-            if autores_formateados
-            else ["APELLIDOS, NOMBRES ESTUDIANTE"]
-        ),
-        "facultad": (
-            facultad_detectada
-            if facultad_detectada
-            else "Facultad de Filosofía, Letras y Ciencias de la Educación"
-        ),
+        "autores": autores_formateados if autores_formateados else ["APELLIDOS, NOMBRES ESTUDIANTE"],
+        "facultad": facultad_detectada if facultad_detectada else "Facultad de Filosofía, Letras y Ciencias de la Educación",
         "carrera": carrera_detectada,
         "handle": handle_official,
     }
 
 
 # ------------------------------------------------------------------
-# GENERADOR DEL DOCUMENTO WORD (.DOCX) - FORMATO INTACTO
+# GENERADOR DEL DOCUMENTO WORD (.DOCX)
 # ------------------------------------------------------------------
 def crear_documento_word(datos):
     doc = docx.Document()
 
-    # 1. Modificar el proofState existente a 'dirty' para forzar autocorrector en Word
     proof_state = doc.settings.element.find(qn("w:proofState"))
     if proof_state is not None:
         proof_state.set(qn("w:spelling"), "dirty")
@@ -892,7 +599,6 @@ def crear_documento_word(datos):
         proof.set(qn("w:grammar"), "dirty")
         doc.settings.element.append(proof)
 
-    # 2. Configurar o actualizar el idioma a Español (Ecuador)
     style_normal = doc.styles["Normal"]
     rPr = style_normal.element.get_or_add_rPr()
     existing_lang = rPr.find(qn("w:lang"))
@@ -903,12 +609,10 @@ def crear_documento_word(datos):
         lang.set(qn("w:val"), "es-EC")
         rPr.append(lang)
 
-    # Estilo global Arial
     font_normal = style_normal.font
     font_normal.name = "Arial"
     font_normal.size = Pt(11)
 
-    # Márgenes
     for section in doc.sections:
         section.top_margin = Inches(0.9)
         section.bottom_margin = Inches(0.9)
@@ -920,15 +624,10 @@ def crear_documento_word(datos):
     table_header.alignment = WD_TABLE_ALIGNMENT.CENTER
     table_header.autofit = False
 
-    cell_left, cell_right = (
-        table_header.rows[0].cells[0],
-        table_header.rows[0].cells[1],
-    )
+    cell_left, cell_right = table_header.rows[0].cells[0], table_header.rows[0].cells[1]
     cell_left.width = Inches(2.6)
     cell_right.width = Inches(3.9)
-    cell_left.vertical_alignment = cell_right.vertical_alignment = (
-        WD_ALIGN_VERTICAL.CENTER
-    )
+    cell_left.vertical_alignment = cell_right.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
 
     p_logo = cell_left.paragraphs[0]
     p_logo.alignment = WD_ALIGN_PARAGRAPH.LEFT
@@ -972,21 +671,13 @@ def crear_documento_word(datos):
     p_cuerpo.paragraph_format.line_spacing = 1.5
     p_cuerpo.paragraph_format.space_after = Pt(24)
 
-    # ------------------------------------------------------------------
-    # NORMALIZACIÓN DE FACULTAD / UNIDAD ACADÉMICA
-    # ------------------------------------------------------------------
     fac_raw = str(datos.get("facultad", "")).strip()
-    fac_clean = re.sub(
-        r"^(Universidad de Cuenca[\.\,\-]?\s*|Facultad de\s*)", "", fac_raw, flags=re.I
-    ).strip()
-
+    fac_clean = re.sub(r"^(Universidad de Cuenca[\.\,\-]?\s*|Facultad de\s*)", "", fac_raw, flags=re.I).strip()
     fac_norm = normalizar_texto(fac_clean)
 
-    # 1. Autocorrección para UCuenca TEC (cubriendo con o sin falta de ortografía en Excel)
     if any(k in fac_norm for k in ["unidad academica", "ucuenca tec", "salvador allende", "tenologica", "tecnologica"]):
         fac_clean = 'Unidad Académica de Formación Técnica y Tecnológica "Salvador Allende" UCuenca TEC.'
     else:
-        # 2. Cruce con el Mapa Oficial de Facultades (convierte MAYÚSCULAS y pone tildes oficiales)
         facultad_mapeada = None
         for fac_oficial, kw_list in FACULTADES_MAP:
             fac_base_norm = normalizar_texto(re.sub(r"^Facultad de\s*", "", fac_oficial, flags=re.I))
@@ -1002,16 +693,10 @@ def crear_documento_word(datos):
             elif fac_clean.isupper():
                 fac_clean = fac_clean.title()
 
-    # ------------------------------------------------------------------
-    # NORMALIZACIÓN DE CARRERA / PROGRAMA
-    # ------------------------------------------------------------------
     carr_clean = formatear_carrera_espanol(datos.get("carrera", ""))
     tipo = datos.get("tipo_estudio", "Pregrado")
 
-    r_c1 = p_cuerpo.add_run(
-        'El Centro de Documentación Regional "Juan Bautista Vázquez" certifica'
-        " que "
-    )
+    r_c1 = p_cuerpo.add_run('El Centro de Documentación Regional "Juan Bautista Vázquez" certifica que ')
     r_c1.font.name = "Arial"
 
     r_nom = p_cuerpo.add_run(f'{datos["autor"]}')
@@ -1025,12 +710,10 @@ def crear_documento_word(datos):
     r_ced.font.name = "Arial"
     r_ced.font.bold = True
 
-    # ------------------------------------------------------------------
-    # REDACCIÓN DINÁMICA DE CONECTORES Y TEXTO DEL CERTIFICADO
-    # ------------------------------------------------------------------
     carr_lower = carr_clean.lower()
 
     if tipo in ["Complexivo", "Estudios Avanzados de Posgrados"]:
+        nombre_modalidad = "Examen Complexivo" if tipo == "Complexivo" else tipo
         if carr_lower.startswith(("carrera de", "tecnología en", "tecnologia en")):
             prefix_carrera = "de la "
         elif carr_lower.startswith("programa"):
@@ -1038,44 +721,27 @@ def crear_documento_word(datos):
         else:
             prefix_carrera = "de la carrera de "
 
-        nombre_modalidad = "Examen Complexivo" if tipo == "Complexivo" else tipo
-
         texto_cert = (
             f", estudiante de la {fac_clean}, {prefix_carrera}{carr_clean}, "
             f"modalidad {nombre_modalidad}, no adeuda ningún bien, ni material bibliográfico en esta dependencia."
         )
     else:
         if tipo == "Maestría":
-            if carr_lower.startswith(("maestría", "maestria")):
-                prefix_carrera = "de la "
-            elif carr_lower.startswith("programa"):
-                prefix_carrera = "del "
-            else:
-                prefix_carrera = "de la Maestría en "
-
+            prefix_carrera = "de la " if carr_lower.startswith(("maestría", "maestria")) else ("del " if carr_lower.startswith("programa") else "de la Maestría en ")
         elif tipo == "Doctorado":
-            if carr_lower.startswith("doctorado"):
-                prefix_carrera = "del "
-            elif carr_lower.startswith("programa"):
-                prefix_carrera = "del "
-            else:
-                prefix_carrera = "del Doctorado en "
-
-        else:  # Pregrado
-            if carr_lower.startswith("carrera"):
-                prefix_carrera = "de la "
-            else:
-                prefix_carrera = "de la carrera de "
+            prefix_carrera = "del " if carr_lower.startswith(("doctorado", "programa")) else "del Doctorado en "
+        else:
+            prefix_carrera = "de la " if carr_lower.startswith("carrera") else "de la carrera de "
 
         texto_cert = (
             f", estudiante de la {fac_clean} {prefix_carrera}{carr_clean}, "
             "no adeuda ningún bien, ni material bibliográfico en esta dependencia."
         )
-    
+
     r_c3 = p_cuerpo.add_run(texto_cert)
     r_c3.font.name = "Arial"
 
-    # FECHA (UTC-5 Ecuador)
+    # FECHA
     p_fecha = doc.add_paragraph()
     p_fecha.alignment = WD_ALIGN_PARAGRAPH.RIGHT
     p_fecha.paragraph_format.space_after = Pt(24)
@@ -1083,19 +749,14 @@ def crear_documento_word(datos):
     tz_ecuador = timezone(timedelta(hours=-5))
     hoy = datetime.now(tz_ecuador)
 
-    r_fecha = p_fecha.add_run(
-        f"Cuenca, {hoy.day} de {MESES[hoy.month - 1]} de {hoy.year}"
-    )
+    r_fecha = p_fecha.add_run(f"Cuenca, {hoy.day} de {MESES[hoy.month - 1]} de {hoy.year}")
     r_fecha.font.name = "Arial"
 
-    # FIRMAS
     doc.add_paragraph().paragraph_format.space_after = Pt(30)
 
     p_atentamente = doc.add_paragraph()
     p_atentamente.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r_at = p_atentamente.add_run(
-        "Atentamente,\n\n\n\n\n\n________________________________________"
-    )
+    r_at = p_atentamente.add_run("Atentamente,\n\n\n\n\n\n________________________________________")
     r_at.font.name = "Arial"
 
     p_firma = doc.add_paragraph()
@@ -1105,12 +766,9 @@ def crear_documento_word(datos):
     r_f1.font.name = "Arial"
     r_f1.font.bold = True
 
-    r_f2 = p_firma.add_run(
-        f'{datos["ref_cargo"]}\nCDR "Juan Bautista Vázquez"'
-    )
+    r_f2 = p_firma.add_run(f'{datos["ref_cargo"]}\nCDR "Juan Bautista Vázquez"')
     r_f2.font.name = "Arial"
 
-    # ENLACE DSPACE O MODALIDAD
     for _ in range(2):
         doc.add_paragraph()
 
@@ -1125,13 +783,12 @@ def crear_documento_word(datos):
         valor_link = "Estudios Avanzados de Posgrados"
     else:
         valor_link = datos.get("handle", "")
-    
+
     r_h = p_link.add_run(valor_link)
     r_h.font.name = "Arial"
     r_h.font.underline = True
     r_h.font.color.rgb = RGBColor(0, 51, 153)
 
-    # VERSIÓN
     doc.add_paragraph()
 
     p_ver = doc.add_paragraph()
@@ -1147,410 +804,403 @@ def crear_documento_word(datos):
 
 
 # ------------------------------------------------------------------
-# INTERFAZ PRINCIPAL EN STREAMLIT
-# BLOQUE MULTI-CAMPUS
+# ESTRUCTURA PRINCIPAL DE PESTAÑAS (GENERACIÓN vs REPORTES JEFATURA)
 # ------------------------------------------------------------------
-col_campus, col_ref, col_tipo = st.columns([2, 2, 2])
+tab_generacion, tab_reportes = st.tabs([
+    "🎓 Generación de Certificados",
+    "📊 Reportes de Gestión (Jefatura)"
+])
 
-with col_campus:
-    campus_sel = st.selectbox(
-        "Campus:",
-        list(REFERENCISTAS_POR_CAMPUS.keys()),
-    )
+# ==================================================================
+# PESTAÑA 1: GENERACIÓN DE CERTIFICADOS
+# ==================================================================
+with tab_generacion:
+    col_campus, col_ref, col_tipo = st.columns([2, 2, 2])
 
-with col_ref:
-    lista_ref_campus = REFERENCISTAS_POR_CAMPUS[campus_sel]
-    nombres_ref = sorted([r["nombre"] for r in lista_ref_campus])
-    referencista_sel = st.selectbox("Referencista:", nombres_ref)
+    with col_campus:
+        campus_sel = st.selectbox("Campus:", list(REFERENCISTAS_POR_CAMPUS.keys()))
 
-with col_tipo:
-    tipo_estudio = st.selectbox(
-        "Tipo de Titulación / Proceso:",
-        ["Pregrado", "Maestría", "Doctorado", "Complexivo", "Estudios Avanzados de Posgrados"],
-    )
+    with col_ref:
+        lista_ref_campus = REFERENCISTAS_POR_CAMPUS[campus_sel]
+        nombres_ref = sorted([r["nombre"] for r in lista_ref_campus])
+        referencista_sel = st.selectbox("Referencista:", nombres_ref)
 
-ref_info = next(
-    item for item in REFERENCISTAS_POR_CAMPUS[campus_sel] if item["nombre"] == referencista_sel
-)
-
-st.markdown("---")
-
-# ------------------------------------------------------------------
-# CASO A: PREGRADO, MAESTRÍA O DOCTORADO (DSPACE)
-# ------------------------------------------------------------------
-if tipo_estudio not in ["Complexivo", "Estudios Avanzados de Posgrados"]:
-    st.markdown("#### 1. Parámetros de la Consulta DSpace")
-
-    if "handle_input" not in st.session_state:
-        st.session_state["handle_input"] = ""
-
-    def limpiar_busqueda():
-        st.session_state["handle_input"] = ""
-        st.session_state.pop("datos_cargados", None)
-        st.session_state.pop("carrera_input", None)
-
-    url_input = st.text_input(
-        "Handle de DSpace:",
-        placeholder=(
-            "Ej: https://dspace.ucuenca.edu.ec/handle/123456789/49693 o"
-            " 123456789/49693"
-        ),
-        key="handle_input",
-    )
-
-    col_btn1, col_btn2 = st.columns([3, 1])
-
-    with col_btn1:
-        btn_procesar = st.button(
-            "Consultar DSpace y Generar Documento(s)",
-            use_container_width=True,
+    with col_tipo:
+        tipo_estudio = st.selectbox(
+            "Tipo de Titulación / Proceso:",
+            ["Pregrado", "Maestría", "Doctorado", "Complexivo", "Estudios Avanzados de Posgrados"],
         )
 
-    with col_btn2:
-        btn_limpiar = st.button(
-            "Nueva Búsqueda",
-            use_container_width=True,
-            on_click=limpiar_busqueda,
-        )
-
-    if btn_procesar or "datos_cargados" in st.session_state:
-        if btn_procesar:
-            if not url_input:
-                st.warning("⚠️ Por favor ingresa el Handle de DSpace.")
-                st.stop()
-            st.session_state.pop("datos_cargados", None)
-
-            with st.spinner(
-                "Conectando con el repositorio DSpace de la UCuenca..."
-            ):
-                meta = extraer_metadatos_dspace(url_input)
-                st.session_state["datos_cargados"] = meta
-                st.session_state["carrera_input"] = formatear_carrera_espanol(
-                    meta["carrera"]
-                )
-
-        meta = st.session_state["datos_cargados"]
-
-        if not meta.get("exito", False):
-            st.warning(
-                "⚠️ **Aviso de conexión:** No se pudieron extraer los datos"
-                " automáticamente desde el servidor DSpace de la UCuenca"
-                " (posible bloqueo de firewall/WAF hacia la nube de Streamlit)."
-                " **Puede ingresar o corregir los datos manualmente a"
-                " continuación.**"
-            )
-
-        st.markdown("---")
-        st.markdown("#### 2. Validación de Metadatos y Estudiantes")
-
-        def auto_formatear_carrera_cb():
-            st.session_state["carrera_input"] = formatear_carrera_espanol(
-                st.session_state["carrera_input"]
-            )
-
-        if "carrera_input" not in st.session_state:
-            st.session_state["carrera_input"] = formatear_carrera_espanol(
-                meta["carrera"]
-            )
-
-        col_f, col_c = st.columns(2)
-        with col_f:
-            facultad_final = st.text_input(
-                "Facultad Detectada:", value=meta["facultad"]
-            )
-
-        with col_c:
-            carrera_final = st.text_input(
-                "Carrera / Programa Detectado:",
-                key="carrera_input",
-                on_change=auto_formatear_carrera_cb,
-            )
-
-        st.markdown(
-            f"**Estudiantes / Autores encontrados ({len(meta['autores'])})**"
-        )
-
-        certificados_generados = []
-
-        for idx, autor_nombre in enumerate(meta["autores"], start=1):
-            with st.expander(
-                f"🎓 Estudiante #{idx}: {autor_nombre}", expanded=True
-            ):
-                nom_est = st.text_input(
-                    f"Nombre Estudiante #{idx}:",
-                    value=autor_nombre,
-                    key=f"nom_{idx}",
-                )
-
-                payload = {
-                    "autor": nom_est.strip().upper(),
-                    "facultad": facultad_final.strip(),
-                    "carrera": carrera_final.strip(),
-                    "tipo_estudio": tipo_estudio,
-                    "handle": meta["handle"],
-                    "ref_nombre": ref_info["nombre"],
-                    "ref_cargo": ref_info["cargo"],
-                }
-                certificados_generados.append(payload)
-
-                buf = crear_documento_word(payload)
-                st.download_button(
-                    label=f"📄 Descargar Certificado Word - Estudiante {idx}",
-                    data=buf,
-                    file_name=f"Certificado_{nom_est.replace(' ', '_')}.docx",
-                    mime=(
-                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                    ),
-                    key=f"btn_dl_{idx}",
-                )
-
-        if len(certificados_generados) > 1:
-            st.markdown("---")
-            zip_buffer = io.BytesIO()
-            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-                for c_data in certificados_generados:
-                    doc_buf = crear_documento_word(c_data)
-                    zf.writestr(
-                        f"Certificado_{c_data['autor'].replace(' ', '_')}.docx",
-                        doc_buf.getvalue(),
-                    )
-
-            zip_buffer.seek(0)
-            st.download_button(
-                label=(
-                    "📦 Descargar TODOS los Certificados en Un Archivo ZIP"
-                    f" ({len(certificados_generados)} archivos)"
-                ),
-                data=zip_buffer,
-                file_name="Certificados_No_Adeudar_UCuenca.zip",
-                mime="application/zip",
-            )
-
-# ------------------------------------------------------------------
-# CASO B: EXAMEN COMPLEXIVO O ESTUDIOS AVANZADOS DE POSGRADOS
-# ------------------------------------------------------------------
-else:
-    st.markdown(f"#### 1. Parámetros de {tipo_estudio}")
-
-    modo_manual_excel = st.radio(
-        "Seleccione la modalidad de generación:",
-        [
-            "👤 Ingreso Manual (1 Estudiante)",
-            "📂 Carga Masiva desde Excel (Listado)",
-        ],
-        horizontal=True,
-    )
+    ref_info = next(item for item in REFERENCISTAS_POR_CAMPUS[campus_sel] if item["nombre"] == referencista_sel)
 
     st.markdown("---")
 
-    if "Ingreso Manual" in modo_manual_excel:
-        st.info(
-            f"ℹ️ Ingrese los datos del estudiante de {tipo_estudio} para"
-            " generar su certificado individual."
+    # ------------------------------------------------------------------
+    # CASO A: PREGRADO, MAESTRÍA O DOCTORADO (DSPACE)
+    # ------------------------------------------------------------------
+    if tipo_estudio not in ["Complexivo", "Estudios Avanzados de Posgrados"]:
+        st.markdown("#### 1. Parámetros de la Consulta DSpace")
+
+        if "handle_input" not in st.session_state:
+            st.session_state["handle_input"] = ""
+
+        def limpiar_busqueda():
+            st.session_state["handle_input"] = ""
+            st.session_state.pop("datos_cargados", None)
+            st.session_state.pop("carrera_input", None)
+
+        url_input = st.text_input(
+            "Handle de DSpace:",
+            placeholder="Ej: https://dspace.ucuenca.edu.ec/handle/123456789/49693 o 123456789/49693",
+            key="handle_input",
         )
 
-        col_m1, col_m2 = st.columns(2)
-        with col_m1:
-            nom_comp = st.text_input(
-                "Nombres y Apellidos Completos:",
-                value="CHUQUIMARCA CHUQUIMARCA JOHN LEONIDAS",
-            )
-            carr_comp = st.text_input(
-                "Carrera o Programa:",
-                value="Sociología",
-            )
-        with col_m2:
-            fac_comp = st.text_input(
-                "Facultad:",
-                value="Facultad de Ciencias Económicas y Administrativas",
+        col_btn1, col_btn2 = st.columns([3, 1])
+
+        with col_btn1:
+            btn_procesar = st.button("Consultar DSpace y Generar Documento(s)", use_container_width=True)
+
+        with col_btn2:
+            btn_limpiar = st.button("Nueva Búsqueda", use_container_width=True, on_click=limpiar_busqueda)
+
+        if btn_procesar or "datos_cargados" in st.session_state:
+            if btn_procesar:
+                if not url_input:
+                    st.warning("⚠️ Por favor ingresa el Handle de DSpace.")
+                    st.stop()
+                st.session_state.pop("datos_cargados", None)
+
+                with st.spinner("Conectando con el repositorio DSpace de la UCuenca..."):
+                    meta = extraer_metadatos_dspace(url_input)
+                    st.session_state["datos_cargados"] = meta
+                    st.session_state["carrera_input"] = formatear_carrera_espanol(meta["carrera"])
+
+            meta = st.session_state["datos_cargados"]
+
+            if not meta.get("exito", False):
+                st.warning(
+                    "⚠️ **Aviso de conexión:** No se pudieron extraer los datos automáticamente desde DSpace."
+                    " **Puede ingresar o corregir los datos manualmente a continuación.**"
+                )
+
+            st.markdown("---")
+            st.markdown("#### 2. Validación de Metadatos y Estudiantes")
+
+            def auto_formatear_carrera_cb():
+                st.session_state["carrera_input"] = formatear_carrera_espanol(st.session_state["carrera_input"])
+
+            if "carrera_input" not in st.session_state:
+                st.session_state["carrera_input"] = formatear_carrera_espanol(meta["carrera"])
+
+            col_f, col_c = st.columns(2)
+            with col_f:
+                facultad_final = st.text_input("Facultad Detectada:", value=meta["facultad"])
+
+            with col_c:
+                carrera_final = st.text_input(
+                    "Carrera / Programa Detectado:",
+                    key="carrera_input",
+                    on_change=auto_formatear_carrera_cb,
+                )
+
+            st.markdown(f"**Estudiantes / Autores encontrados ({len(meta['autores'])})**")
+
+            certificados_generados = []
+
+            for idx, autor_nombre in enumerate(meta["autores"], start=1):
+                with st.expander(f"🎓 Estudiante #{idx}: {autor_nombre}", expanded=True):
+                    nom_est = st.text_input(f"Nombre Estudiante #{idx}:", value=autor_nombre, key=f"nom_{idx}")
+
+                    payload = {
+                        "autor": nom_est.strip().upper(),
+                        "facultad": facultad_final.strip(),
+                        "carrera": carrera_final.strip(),
+                        "tipo_estudio": tipo_estudio,
+                        "handle": meta["handle"],
+                        "ref_nombre": ref_info["nombre"],
+                        "ref_cargo": ref_info["cargo"],
+                    }
+                    certificados_generados.append(payload)
+
+                    buf = crear_documento_word(payload)
+
+                    st.download_button(
+                        label=f"📄 Descargar Certificado Word - Estudiante {idx}",
+                        data=buf,
+                        file_name=f"Certificado_{nom_est.replace(' ', '_')}.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        key=f"btn_dl_{idx}",
+                        on_click=registrar_evento_certificado_gsheets,
+                        args=(payload, campus_sel),
+                    )
+
+            if len(certificados_generados) > 1:
+                st.markdown("---")
+                zip_buffer = io.BytesIO()
+                with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                    for c_data in certificados_generados:
+                        doc_buf = crear_documento_word(c_data)
+                        zf.writestr(f"Certificado_{c_data['autor'].replace(' ', '_')}.docx", doc_buf.getvalue())
+
+                zip_buffer.seek(0)
+                st.download_button(
+                    label=f"📦 Descargar TODOS los Certificados en Un Archivo ZIP ({len(certificados_generados)} archivos)",
+                    data=zip_buffer,
+                    file_name="Certificados_No_Adeudar_UCuenca.zip",
+                    mime="application/zip",
+                    key="btn_dl_all_zip",
+                    on_click=registrar_lote_certificados_gsheets,
+                    args=(certificados_generados, campus_sel),
+                )
+
+    # ------------------------------------------------------------------
+    # CASO B: EXAMEN COMPLEXIVO O ESTUDIOS AVANZADOS DE POSGRADOS
+    # ------------------------------------------------------------------
+    else:
+        st.markdown(f"#### 1. Parámetros de {tipo_estudio}")
+
+        modo_manual_excel = st.radio(
+            "Seleccione la modalidad de generación:",
+            ["👤 Ingreso Manual (1 Estudiante)", "📂 Carga Masiva desde Excel (Listado)"],
+            horizontal=True,
+        )
+
+        st.markdown("---")
+
+        if "Ingreso Manual" in modo_manual_excel:
+            st.info(f"ℹ️ Ingrese los datos del estudiante de {tipo_estudio} para generar su certificado individual.")
+
+            col_m1, col_m2 = st.columns(2)
+            with col_m1:
+                nom_comp = st.text_input("Nombres y Apellidos Completos:", value="CHUQUIMARCA CHUQUIMARCA JOHN LEONIDAS")
+                carr_comp = st.text_input("Carrera o Programa:", value="Sociología")
+            with col_m2:
+                fac_comp = st.text_input("Facultad:", value="Facultad de Ciencias Económicas y Administrativas")
+
+            payload_manual = {
+                "autor": nom_comp.strip().upper(),
+                "facultad": fac_comp.strip(),
+                "carrera": formatear_carrera_espanol(carr_comp),
+                "tipo_estudio": tipo_estudio,
+                "handle": "",
+                "ref_nombre": ref_info["nombre"],
+                "ref_cargo": ref_info["cargo"],
+            }
+
+            buf_manual = crear_documento_word(payload_manual)
+
+            st.download_button(
+                label="📄 Descargar Certificado Word (.docx)",
+                data=buf_manual,
+                file_name=f"Certificado_{tipo_estudio.replace(' ', '_')}_{nom_comp.replace(' ', '_')}.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                key="btn_manual_proceso",
+                on_click=registrar_evento_certificado_gsheets,
+                args=(payload_manual, campus_sel),
             )
 
-        payload_manual = {
-            "autor": nom_comp.strip().upper(),
-            "facultad": fac_comp.strip(),
-            "carrera": formatear_carrera_espanol(carr_comp),
-            "tipo_estudio": tipo_estudio,
-            "handle": "",
-            "ref_nombre": ref_info["nombre"],
-            "ref_cargo": ref_info["cargo"],
-        }
+        else:
+            st.info(f"📂 Cargue el archivo Excel con el listado de {tipo_estudio} para generar los certificados.")
 
-        buf_manual = crear_documento_word(payload_manual)
+            archivo_excel = st.file_uploader("Seleccione el archivo Excel (.xlsx, .xls):", type=["xlsx", "xls"])
+
+            if archivo_excel is not None:
+                try:
+                    df_raw = pd.read_excel(archivo_excel, header=None)
+                    header_idx = 0
+                    for idx, row in df_raw.iterrows():
+                        row_text = " ".join([str(cell).lower() for cell in row.values if pd.notna(cell)])
+                        if "facultad" in row_text or "apellidos" in row_text or "nombres" in row_text:
+                            header_idx = idx
+                            break
+
+                    df = pd.read_excel(archivo_excel, header=header_idx)
+
+                    def norm_col(texto):
+                        txt = unicodedata.normalize("NFD", str(texto)).encode("ascii", "ignore").decode("utf-8")
+                        return txt.strip().lower()
+
+                    cols_dict = {norm_col(c): c for c in df.columns}
+
+                    def encontrar_columna(palabras_clave):
+                        for kw in palabras_clave:
+                            for norm_c, orig_c in cols_dict.items():
+                                if kw in norm_c:
+                                    return orig_c
+                        return None
+
+                    col_fac = encontrar_columna(["facultad"])
+                    col_carr = encontrar_columna(["carrera o maestria", "carrera", "programa"])
+                    col_ape = encontrar_columna(["apellidos", "apellido"])
+                    col_nom = encontrar_columna(["nombres", "nombre"])
+                    col_aut = encontrar_columna(["autorizacion", "autoriz"])
+
+                    faltantes = []
+                    if not col_fac: faltantes.append("Facultad")
+                    if not col_carr: faltantes.append("Carrera o Maestría")
+                    if not col_ape: faltantes.append("Apellidos")
+                    if not col_nom: faltantes.append("Nombres")
+                    if not col_aut: faltantes.append("Autorización")
+
+                    if faltantes:
+                        st.error(f"❌ No se pudieron identificar las siguientes columnas: **{', '.join(faltantes)}**.")
+                    else:
+                        df = df.dropna(how="all")
+                        df_filtrado = df[df[col_aut].astype(str).str.strip().str.upper() == "AUTORIZADO"].copy()
+                        cant_autorizados = len(df_filtrado)
+
+                        if cant_autorizados == 0:
+                            st.warning("⚠️ No se encontraron filas con estado 'AUTORIZADO'.")
+                        else:
+                            st.success(f"✅ Se encontraron **{cant_autorizados}** estudiantes **AUTORIZADOS**.")
+                            st.dataframe(df_filtrado[[col_fac, col_carr, col_ape, col_nom, col_aut]], use_container_width=True)
+
+                            zip_buffer = io.BytesIO()
+                            payloads_excel_list = []
+
+                            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                                for _, row in df_filtrado.iterrows():
+                                    nombre_completo = f"{row[col_ape]} {row[col_nom]}".strip().upper()
+                                    facultad_val = str(row[col_fac]).strip()
+                                    carrera_val = formatear_carrera_espanol(str(row[col_carr]).strip())
+
+                                    payload_excel = {
+                                        "autor": nombre_completo,
+                                        "facultad": facultad_val,
+                                        "carrera": carrera_val,
+                                        "tipo_estudio": tipo_estudio,
+                                        "handle": "",
+                                        "ref_nombre": ref_info["nombre"],
+                                        "ref_cargo": ref_info["cargo"],
+                                    }
+                                    payloads_excel_list.append(payload_excel)
+                                    doc_buf = crear_documento_word(payload_excel)
+                                    zf.writestr(f"Certificado_{nombre_completo.replace(' ', '_')}.docx", doc_buf.getvalue())
+
+                            zip_buffer.seek(0)
+                            st.download_button(
+                                label=f"📦 Descargar Certificados {tipo_estudio} (.ZIP) ({cant_autorizados} archivos)",
+                                data=zip_buffer,
+                                file_name=f"Certificados_{tipo_estudio.replace(' ', '_')}_UCuenca.zip",
+                                mime="application/zip",
+                                key="btn_dl_excel_zip",
+                                on_click=registrar_lote_certificados_gsheets,
+                                args=(payloads_excel_list, campus_sel),
+                            )
+
+                except Exception as e:
+                    st.error(f"❌ Ocurrió un error al procesar el Excel: {e}")
+
+# ==================================================================
+# PESTAÑA 2: REPORTE DE GESTIÓN PARA JEFATURA
+# ==================================================================
+with tab_reportes:
+    st.markdown("### 📊 Dashboard Consolidado de Gestión (Google Sheets)")
+    st.caption("Consolidado en tiempo real de certificados emitidos registrado permanentemente en Google Drive.")
+
+    try:
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        df_logs = conn.read(worksheet=WORKSHEET_NAME, ttl="0s")
+    except Exception as e:
+        df_logs = pd.DataFrame()
+        st.warning("⚠️ **Aviso de conexión:** No se pudo cargar los datos desde Google Sheets. Verifique la configuración de `Secrets` en Streamlit Cloud.")
+
+    if df_logs.empty:
+        st.info("ℹ️ Aún no existen certificados registrados en Google Sheets. Las emisiones aparecerán automáticamente a medida que los referencistas descarguen certificados.")
+    else:
+        df_logs["fecha_dt"] = pd.to_datetime(df_logs["fecha_hora"])
+
+        # --- FILTROS PARA LA JEFATURA ---
+        with st.expander("🔍 Filtros Avanzados de Reporte", expanded=True):
+            col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+
+            f_campus = col_f1.multiselect("Campus:", options=list(df_logs["campus"].unique()), default=list(df_logs["campus"].unique()))
+            f_tipo = col_f2.multiselect("Tipo de Titulación:", options=list(df_logs["tipo_estudio"].unique()), default=list(df_logs["tipo_estudio"].unique()))
+            f_ref = col_f3.multiselect("Referencista:", options=list(df_logs["referencista"].unique()), default=list(df_logs["referencista"].unique()))
+
+            min_date = df_logs["fecha_dt"].min().date()
+            max_date = df_logs["fecha_dt"].max().date()
+            f_fechas = col_f4.date_input("Rango de Fechas:", value=(min_date, max_date))
+
+        # Filtrar DataFrame
+        mask = (
+            (df_logs["campus"].isin(f_campus)) &
+            (df_logs["tipo_estudio"].isin(f_tipo)) &
+            (df_logs["referencista"].isin(f_ref))
+        )
+        if isinstance(f_fechas, tuple) and len(f_fechas) == 2:
+            mask = mask & (df_logs["fecha_dt"].dt.date >= f_fechas[0]) & (df_logs["fecha_dt"].dt.date <= f_fechas[1])
+
+        df_filtered = df_logs[mask]
+
+        st.markdown("---")
+
+        # --- CONTEO POR REFERENCISTAS ---
+        df_ref_count = (
+            df_filtered.groupby(["referencista", "campus"])
+            .size()
+            .reset_index(name="Certificados Emitidos")
+            .sort_values(by="Certificados Emitidos", ascending=False)
+        )
+
+        total_emitidos = len(df_filtered)
+        if total_emitidos > 0:
+            df_ref_count["Porcentaje %"] = ((df_ref_count["Certificados Emitidos"] / total_emitidos) * 100).round(1)
+
+        # --- TARJETAS DE INDICADORES (KPIs) ---
+        col_kpi1, col_kpi2, col_kpi3, col_kpi4 = st.columns(4)
+
+        top_referencista = df_ref_count.iloc[0]["referencista"] if not df_ref_count.empty else "N/A"
+        top_cant = df_ref_count.iloc[0]["Certificados Emitidos"] if not df_ref_count.empty else 0
+
+        col_kpi1.metric("Total Certificados", total_emitidos)
+        col_kpi2.metric("👑 Referencista Líder", top_referencista, f"{top_cant} cert.")
+        col_kpi3.metric("Campus Mayor Producción", df_filtered["campus"].mode()[0] if not df_filtered.empty else "N/A")
+        col_kpi4.metric("Modalidad Más Emitida", df_filtered["tipo_estudio"].mode()[0] if not df_filtered.empty else "N/A")
+
+        st.markdown("---")
+
+        # --- CONTEO Y GRÁFICO POR REFERENCISTA ---
+        col_g1, col_g2 = st.columns([1, 1])
+
+        with col_g1:
+            st.markdown("#### 🏆 Ranking de Referencistas por Producción")
+            st.dataframe(df_ref_count, use_container_width=True, hide_index=True)
+
+        with col_g2:
+            st.markdown("#### 📈 Comparativa Visual de Emisiones")
+            if not df_ref_count.empty:
+                chart_data = df_ref_count.set_index("referencista")["Certificados Emitidos"]
+                st.bar_chart(chart_data)
+
+        st.markdown("---")
+
+        # --- HISTÓRICO Y EXPORTAR EN EXCEL ---
+        st.markdown("#### 📋 Bitácora Histórica de Certificados")
+        st.dataframe(
+            df_filtered[[
+                "fecha_hora", 
+                "referencista", 
+                "campus", 
+                "estudiante", 
+                "facultad", 
+                "carrera", 
+                "tipo_estudio"
+            ]],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        output_excel = io.BytesIO()
+        with pd.ExcelWriter(output_excel, engine="xlsxwriter") as writer:
+            df_filtered.to_excel(writer, index=False, sheet_name="Detalle_Transacciones")
+            df_ref_count.to_excel(writer, index=False, sheet_name="Resumen_Referencistas")
+        output_excel.seek(0)
 
         st.download_button(
-            label="📄 Descargar Certificado Word (.docx)",
-            data=buf_manual,
-            file_name=(
-                f"Certificado_{tipo_estudio.replace(' ', '_')}_{nom_comp.replace(' ', '_')}.docx"
-            ),
-            mime=(
-                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            ),
-            key="btn_manual_proceso",
+            label="📊 Descargar Reporte Completo en Excel (.xlsx)",
+            data=output_excel,
+            file_name=f"Reporte_Gestion_Certificados_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="btn_download_excel_report",
         )
-
-    else:
-        st.info(
-            f"📂 Cargue el archivo Excel con el listado de {tipo_estudio}"
-            " para generar los certificados de los estudiantes autorizados."
-        )
-
-        archivo_excel = st.file_uploader(
-            "Seleccione el archivo Excel (.xlsx, .xls):", type=["xlsx", "xls"]
-        )
-
-        if archivo_excel is not None:
-            try:
-                df_raw = pd.read_excel(archivo_excel, header=None)
-
-                header_idx = 0
-                for idx, row in df_raw.iterrows():
-                    row_text = " ".join(
-                        [str(cell).lower() for cell in row.values if pd.notna(cell)]
-                    )
-                    if (
-                        "facultad" in row_text
-                        or "apellidos" in row_text
-                        or "nombres" in row_text
-                    ):
-                        header_idx = idx
-                        break
-
-                df = pd.read_excel(archivo_excel, header=header_idx)
-
-                def norm_col(texto):
-                    txt = (
-                        unicodedata.normalize("NFD", str(texto))
-                        .encode("ascii", "ignore")
-                        .decode("utf-8")
-                    )
-                    return txt.strip().lower()
-
-                cols_dict = {norm_col(c): c for c in df.columns}
-
-                def encontrar_columna(palabras_clave):
-                    for kw in palabras_clave:
-                        for norm_c, orig_c in cols_dict.items():
-                            if kw in norm_c:
-                                return orig_c
-                    return None
-
-                col_fac = encontrar_columna(["facultad"])
-                col_carr = encontrar_columna(
-                    ["carrera o maestria", "carrera", "programa"]
-                )
-                col_ape = encontrar_columna(["apellidos", "apellido"])
-                col_nom = encontrar_columna(["nombres", "nombre"])
-                col_aut = encontrar_columna(["autorizacion", "autoriz"])
-
-                faltantes = []
-                if not col_fac:
-                    faltantes.append("Facultad")
-                if not col_carr:
-                    faltantes.append("Carrera o Maestría")
-                if not col_ape:
-                    faltantes.append("Apellidos")
-                if not col_nom:
-                    faltantes.append("Nombres")
-                if not col_aut:
-                    faltantes.append("Autorización")
-
-                if faltantes:
-                    st.error(
-                        "❌ No se pudieron identificar las siguientes columnas:"
-                        f" **{', '.join(faltantes)}**."
-                    )
-                    st.warning(
-                        "📋 **Columnas detectadas en la fila"
-                        f" {header_idx + 1} de tu Excel:**\n`{list(df.columns)}`"
-                    )
-                else:
-                    df = df.dropna(how="all")
-                    df_filtrado = df[
-                        df[col_aut].astype(str).str.strip().str.upper()
-                        == "AUTORIZADO"
-                    ].copy()
-                    cant_autorizados = len(df_filtrado)
-
-                    if cant_autorizados == 0:
-                        st.warning(
-                            "⚠️ Se leyó el archivo correctamente (encabezado en"
-                            f" fila {header_idx + 1}), pero no se encontraron"
-                            " filas con el valor 'AUTORIZADO' en la columna"
-                            f" '{col_aut}'."
-                        )
-                    else:
-                        st.success(
-                            f"✅ Se encontraron **{cant_autorizados}**"
-                            " estudiantes con estado **AUTORIZADO** (encabezado"
-                            f" detectado en la fila {header_idx + 1})."
-                        )
-
-                        st.dataframe(
-                            df_filtrado[
-                                [col_fac, col_carr, col_ape, col_nom, col_aut]
-                            ],
-                            use_container_width=True,
-                        )
-
-                        if st.button(
-                            "⚡ Generar Todos los Certificados (.ZIP)",
-                            use_container_width=True,
-                        ):
-                            with st.spinner(
-                                "Procesando certificados y empaquetando en"
-                                " archivo ZIP..."
-                            ):
-                                zip_buffer = io.BytesIO()
-
-                                with zipfile.ZipFile(
-                                    zip_buffer, "w", zipfile.ZIP_DEFLATED
-                                ) as zf:
-                                    for _, row in df_filtrado.iterrows():
-                                        nombre_completo = (
-                                            f"{row[col_ape]}"
-                                            f" {row[col_nom]}".strip().upper()
-                                        )
-                                        facultad_val = str(
-                                            row[col_fac]
-                                        ).strip()
-                                        carrera_val = formatear_carrera_espanol(
-                                            str(row[col_carr]).strip()
-                                        )
-
-                                        payload_excel = {
-                                            "autor": nombre_completo,
-                                            "facultad": facultad_val,
-                                            "carrera": carrera_val,
-                                            "tipo_estudio": tipo_estudio,
-                                            "handle": "",
-                                            "ref_nombre": ref_info["nombre"],
-                                            "ref_cargo": ref_info["cargo"],
-                                        }
-
-                                        doc_buf = crear_documento_word(
-                                            payload_excel
-                                        )
-                                        zf.writestr(
-                                            "Certificado_"
-                                            f"{nombre_completo.replace(' ', '_')}.docx",
-                                            doc_buf.getvalue(),
-                                        )
-
-                                zip_buffer.seek(0)
-                                st.download_button(
-                                    label=(
-                                        f"📦 Descargar Certificados {tipo_estudio}"
-                                        f" (.ZIP) ({cant_autorizados} archivos)"
-                                    ),
-                                    data=zip_buffer,
-                                    file_name=(
-                                        f"Certificados_{tipo_estudio.replace(' ', '_')}_UCuenca.zip"
-                                    ),
-                                    mime="application/zip",
-                                    key="btn_dl_excel_zip",
-                                )
-            except Exception as e:
-                st.error(
-                    f"❌ Ocurrió un error al procesar el archivo Excel: {e}"
-                )
