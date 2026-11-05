@@ -808,7 +808,7 @@ def crear_documento_word(datos):
 # ------------------------------------------------------------------
 tab_generacion, tab_reportes = st.tabs([
     "🎓 Generación de Certificados",
-    "📊 Reportes de Gestión (Jefatura)"
+    "📊 Reportes de Gestión"
 ])
 
 # ==================================================================
