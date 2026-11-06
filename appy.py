@@ -1095,7 +1095,7 @@ with tab_generacion:
 # PESTAÑA 2: REPORTE DE GESTIÓN PARA JEFATURA
 # ==================================================================
 with tab_reportes:
-    st.markdown("### 📊 Dashboard Consolidado de Gestión (Google Sheets)")
+    st.markdown("### 📊 Dashboard Consolidado de Gestión")
     st.caption("Consolidado en tiempo real de certificados emitidos registrado permanentemente en Google Drive.")
 
     try:
